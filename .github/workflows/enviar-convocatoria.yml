@@ -1,0 +1,37 @@
+name: Convocatorias - Enviar convocatoria
+
+on:
+  workflow_dispatch:
+    inputs:
+      convocatoria_id:
+        description: "ID de la convocatoria a enviar"
+        required: true
+        type: string
+
+jobs:
+  enviar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Enviar convocatoria
+        run: python scripts/enviar_convocatoria.py --id "${{ inputs.convocatoria_id }}"
