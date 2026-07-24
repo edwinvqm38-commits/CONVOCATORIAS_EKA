@@ -3,11 +3,33 @@
 // credenciales aparte: Apps Script usa la cuenta de Google que desplegó el
 // proyecto, la misma que debe tener acceso de editor a los Sheets usados.
 
+// Cada request de Telegram (un mensaje, un click de boton) dispara varias
+// operaciones sobre las mismas hojas (ensureControlSheets + registrar
+// usuario + leer/guardar sesion...). Sin memoria, cada una volvia a abrir el
+// spreadsheet y a revisar el encabezado desde cero -- son llamadas de red a
+// Sheets, y eso es lo que se sentia lento en /convocar. Estos dos cache solo
+// duran lo que dura la ejecucion actual (una request), pero evitan repetir
+// trabajo dentro de esa misma request.
+var _spreadsheetCache = {};
+var _sheetsEnsuradosCache = {};
+
+function abrirSpreadsheet(spreadsheetId) {
+  if (!_spreadsheetCache[spreadsheetId]) {
+    _spreadsheetCache[spreadsheetId] = SpreadsheetApp.openById(spreadsheetId);
+  }
+  return _spreadsheetCache[spreadsheetId];
+}
+
 function ensureSheetWithHeaders(spreadsheetId, sheetName, headers) {
-  var ss = SpreadsheetApp.openById(spreadsheetId);
+  var ss = abrirSpreadsheet(spreadsheetId);
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
+  }
+
+  var claveCache = spreadsheetId + "::" + sheetName;
+  if (_sheetsEnsuradosCache[claveCache]) {
+    return sheet;
   }
 
   var primeraFila = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
@@ -19,6 +41,7 @@ function ensureSheetWithHeaders(spreadsheetId, sheetName, headers) {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   }
 
+  _sheetsEnsuradosCache[claveCache] = true;
   return sheet;
 }
 
@@ -67,7 +90,7 @@ function updateRowFields(spreadsheetId, sheetName, headers, rowNumber, partialOb
 }
 
 function deleteRowInSheet(spreadsheetId, sheetName, rowNumber) {
-  var sheet = SpreadsheetApp.openById(spreadsheetId).getSheetByName(sheetName);
+  var sheet = abrirSpreadsheet(spreadsheetId).getSheetByName(sheetName);
   if (sheet && rowNumber <= sheet.getLastRow()) {
     sheet.deleteRow(rowNumber);
   }
@@ -91,7 +114,7 @@ function upsertRow(spreadsheetId, sheetName, headers, predicateFn, rowObject) {
 }
 
 function getSpreadsheetTitleById(spreadsheetId) {
-  return SpreadsheetApp.openById(spreadsheetId).getName();
+  return abrirSpreadsheet(spreadsheetId).getName();
 }
 
 /** Acepta una URL completa de Google Sheets o un ID pelado, y devuelve el ID. */
