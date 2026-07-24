@@ -36,3 +36,25 @@ function configurarComandosBot() {
 
   Logger.log("Comandos configurados. Admins con menu completo: " + admins.join(", "));
 }
+
+/** Prueba manual: mandate un mensaje a ti mismo (el primer chat_id en
+ * ADMIN_CHAT_IDS) para confirmar que el token y la conexion con Telegram
+ * funcionan, sin depender del webhook ni de la vista de Ejecuciones. Correla
+ * eligiendo "probarEnvioManual" en el desplegable de funciones y Ejecutar:
+ * el resultado se ve al toque en el panel de abajo del editor. */
+function probarEnvioManual() {
+  var admins = (getScriptProp("ADMIN_CHAT_IDS") || "")
+    .split(",")
+    .map(function (id) {
+      return id.trim();
+    })
+    .filter(Boolean);
+
+  if (!admins.length) {
+    Logger.log("ADMIN_CHAT_IDS esta vacio o no se guardo bien la propiedad.");
+    return;
+  }
+
+  var resultado = enviarMensaje(admins[0], "✅ Prueba manual desde el editor de Apps Script.");
+  Logger.log("Resultado de Telegram: " + JSON.stringify(resultado));
+}
