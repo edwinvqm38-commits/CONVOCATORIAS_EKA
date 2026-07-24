@@ -54,16 +54,17 @@ cuenta de Google, con **Google Apps Script**.
 
 1. Recibe el mensaje de la convocatoria con 3 botones: **✅ Disponible**,
    **❌ No disponible**, **🤔 Posiblemente**.
-2. Al presionar cualquiera, el bot confirma su respuesta y pregunta su
-   **especialidad** con botones (la lista configurada por el admin).
-3. Luego, en mensajes de texto libre, le pide en orden: **teléfono**,
-   **nombres completos**, **DNI**, **lugar de residencia**, y una
-   **experiencia breve** (puede escribirla o enviarla como nota de voz).
-4. Por último le pide **adjuntar su CV** (PDF o Word) directo en el chat.
-   En cuanto lo sube, el bot lo guarda en Drive y confirma automáticamente
-   — no hace falta ningún botón de "enviado".
-5. Todo queda guardado como una fila en la pestaña `Respuestas` de la hoja
-   activa (una fila por convocatoria + usuario), con el link al CV incluido.
+2. Al presionar cualquiera, el bot confirma su respuesta y le pide, en este
+   orden: **nombres completos**, **DNI**, **teléfono**, **lugar de
+   residencia**, su **especialidad** (con botones), una **experiencia
+   breve** (texto o nota de voz), y por último **adjuntar su CV** (PDF o
+   Word) directo en el chat.
+3. En cuanto sube el CV, el bot lo guarda en Drive y confirma
+   automáticamente — no hace falta ningún botón de "enviado".
+4. Todo queda guardado como una fila en la pestaña `Respuestas` de la hoja
+   activa, con las columnas en el mismo orden en que se preguntó (nombre,
+   DNI, teléfono, lugar, especialidad, experiencia, CV), y la disponibilidad
+   más la fecha de respuesta al final de la fila.
 
 **Importante sobre Telegram**: un bot solo puede escribirle a alguien que ya
 le escribió primero (o le dio `/start`) — es una regla de la plataforma, no

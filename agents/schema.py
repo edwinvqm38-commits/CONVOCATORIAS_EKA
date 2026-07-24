@@ -35,20 +35,23 @@ CONVOCATORIAS_HEADERS = [
     "enviada_en",
 ]
 
+# Orden pensado para leerse de frente en la hoja, igual que se le pregunta al
+# usuario: datos personales primero, disponibilidad y fecha al final, y los
+# campos tecnicos (llaves internas) al final de todo.
 RESPUESTAS_SHEET = "Respuestas"
 RESPUESTAS_HEADERS = [
+    "nombres_completos",
+    "dni",
+    "telefono",
+    "lugar_residencia",
+    "especialidad",
+    "experiencia_texto",
+    "experiencia_audio_file_id",
+    "cv_drive_url",
+    "respuesta",
+    "respondido_en",
     "convocatoria_id",
     "telegram_chat_id",
     "nombre",
     "username",
-    "respuesta",
-    "especialidad",
-    "telefono",
-    "nombres_completos",
-    "dni",
-    "lugar_residencia",
-    "experiencia_texto",
-    "experiencia_audio_file_id",
-    "cv_drive_url",
-    "respondido_en",
 ]

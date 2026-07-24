@@ -25,23 +25,41 @@ var PREGUNTAS_CONVOCAR = {
     '⏰ ¿Hasta cuándo pueden responder? Formato AAAA-MM-DD o AAAA-MM-DD HH:MM (o envía "-" si no aplica).',
 };
 
-var PASOS_RESPUESTA = [
-  "resp_telefono",
+// Orden completo de la conversacion tras presionar Disponible / No
+// disponible / Posiblemente. "resp_especialidad" es el unico paso que se
+// responde con botones (no con texto libre); el resto es texto o, en
+// resp_experiencia y resp_cv, audio/documento.
+var ORDEN_RESPUESTA = [
   "resp_nombres_completos",
   "resp_dni",
+  "resp_telefono",
   "resp_lugar_residencia",
+  "resp_especialidad",
   "resp_experiencia",
   "resp_cv",
 ];
 
 var PREGUNTAS_RESPUESTA = {
-  resp_telefono: "📞 Indica tu número de teléfono.",
   resp_nombres_completos: "🪪 Indica tus nombres completos.",
   resp_dni: "🆔 Indica tu número de DNI.",
+  resp_telefono: "📞 Indica tu número de teléfono.",
   resp_lugar_residencia: "📍 Indica tu lugar de residencia.",
   resp_experiencia: "🛠️ Cuéntanos brevemente tu experiencia. Puedes escribirla en texto o enviar una nota de voz.",
   resp_cv: "📎 Por último, adjunta tu CV (PDF o Word) como documento, directo en este chat.",
 };
+
+/** Guarda en que paso quedo la conversacion y hace la siguiente pregunta:
+ * con botones si es resp_especialidad, con texto en cualquier otro caso. */
+function avanzarFlujoRespuesta(chatId, paso, datosSesion) {
+  saveSession(chatId, paso, datosSesion);
+
+  if (paso === "resp_especialidad") {
+    enviarMensaje(chatId, "🛠️ Indica tu especialidad:", botonesEspecialidades(getEspecialidades()));
+    return;
+  }
+
+  enviarMensaje(chatId, PREGUNTAS_RESPUESTA[paso]);
+}
 
 function generarId() {
   return Date.now().toString(36) + Math.floor(Math.random() * 46656).toString(36);
@@ -419,9 +437,7 @@ function manejarRespuestaCallback(chatId, messageId, callbackId, from, convocato
   editarMensaje(chatId, messageId, lines.join("\n"));
   responderCallback(callbackId, "Respuesta registrada: " + ETIQUETAS_RESPUESTA[respuesta]);
 
-  var especialidades = getEspecialidades();
-  saveSession(chatId, "resp_especialidad", { convocatoria_id: convocatoriaId });
-  enviarMensaje(chatId, "🛠️ Indica tu especialidad:", botonesEspecialidades(especialidades));
+  avanzarFlujoRespuesta(chatId, ORDEN_RESPUESTA[0], { convocatoria_id: convocatoriaId });
 }
 
 function manejarEspecialidadCallback(chatId, callbackId, nombreEspecialidad) {
@@ -443,9 +459,9 @@ function manejarEspecialidadCallback(chatId, callbackId, nombreEspecialidad) {
     { especialidad: nombreEspecialidad },
   );
 
-  saveSession(chatId, "resp_telefono", Object.assign({}, sesion.datos, { especialidad: nombreEspecialidad }));
   responderCallback(callbackId, "Especialidad: " + nombreEspecialidad);
-  enviarMensaje(chatId, PREGUNTAS_RESPUESTA.resp_telefono);
+  var siguientePaso = ORDEN_RESPUESTA[ORDEN_RESPUESTA.indexOf("resp_especialidad") + 1];
+  avanzarFlujoRespuesta(chatId, siguientePaso, Object.assign({}, sesion.datos, { especialidad: nombreEspecialidad }));
 }
 
 function manejarPasoRespuesta(chatId, sesion, message) {
@@ -468,8 +484,7 @@ function manejarPasoRespuesta(chatId, sesion, message) {
     }
 
     upsertRow(spreadsheetId, RESPUESTAS_SHEET, RESPUESTAS_HEADERS, matchFn, actualizacionExp);
-    saveSession(chatId, "resp_cv", sesion.datos);
-    enviarMensaje(chatId, PREGUNTAS_RESPUESTA.resp_cv);
+    avanzarFlujoRespuesta(chatId, ORDEN_RESPUESTA[ORDEN_RESPUESTA.indexOf("resp_experiencia") + 1], sesion.datos);
     return;
   }
 
@@ -504,10 +519,8 @@ function manejarPasoRespuesta(chatId, sesion, message) {
   actualizacion[campo] = texto;
   upsertRow(spreadsheetId, RESPUESTAS_SHEET, RESPUESTAS_HEADERS, matchFn, actualizacion);
 
-  var indiceActual = PASOS_RESPUESTA.indexOf(paso);
-  var siguientePaso = PASOS_RESPUESTA[indiceActual + 1];
-  saveSession(chatId, siguientePaso, sesion.datos);
-  enviarMensaje(chatId, PREGUNTAS_RESPUESTA[siguientePaso]);
+  var indiceActual = ORDEN_RESPUESTA.indexOf(paso);
+  avanzarFlujoRespuesta(chatId, ORDEN_RESPUESTA[indiceActual + 1], sesion.datos);
 }
 
 function manejarUpdate(update) {
@@ -608,7 +621,7 @@ function manejarUpdate(update) {
       texto.indexOf("/") !== 0
     ) {
       manejarPasoConvocar(msgChatId, sesion, texto);
-    } else if (sesion && PASOS_RESPUESTA.indexOf(sesion.paso) !== -1) {
+    } else if (sesion && ORDEN_RESPUESTA.indexOf(sesion.paso) !== -1 && sesion.paso !== "resp_especialidad") {
       manejarPasoRespuesta(msgChatId, sesion, update.message);
     } else {
       enviarMensaje(msgChatId, "No entendí ese mensaje. Usa /ayuda para ver los comandos disponibles.");
