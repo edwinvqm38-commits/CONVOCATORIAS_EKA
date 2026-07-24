@@ -1,6 +1,6 @@
-"""Nombres de hojas y encabezados compartidos con lib/schema.js (Node). Deben
-mantenerse iguales entre ambos lenguajes: el webhook (Node) atiende botones
-en tiempo real, estos scripts en Python son para uso administrativo/cron.
+"""Nombres de hojas y encabezados compartidos con appsscript/Schema.gs. Deben
+mantenerse iguales entre ambos: el bot en Apps Script atiende botones en
+tiempo real, estos scripts en Python son opcionales, para uso administrativo/cron.
 """
 
 CONFIG_SHEET = "Config"
@@ -49,5 +49,6 @@ RESPUESTAS_HEADERS = [
     "lugar_residencia",
     "experiencia_texto",
     "experiencia_audio_file_id",
+    "cv_drive_url",
     "respondido_en",
 ]

@@ -5,13 +5,12 @@ __pycache__/
 env/
 venv/
 
-# Node
-node_modules/
-.vercel/
-
 # Variables y secretos
 .env
 _secrets/
+
+# Configuracion local de clasp (opcional, si se usa para subir appsscript/)
+.clasp.json
 
 # Archivos temporales del sistema
 tmp/
