@@ -9,12 +9,15 @@ cuenta de Google, con **Google Apps Script**.
 
 ## Arquitectura
 
-- **Webhook del bot (tiempo real)**: un proyecto de **Google Apps Script**
-  (carpeta `appsscript/`) publicado como "Web App". Es la única pieza que
-  necesita estar "siempre encendida" para reaccionar al instante cuando
-  alguien toca un botón o escribe — y Google la aloja gratis, sin que tengas
-  que desplegar nada en otro lado. Lee y escribe directamente en Sheets y
-  Drive usando tu propia cuenta de Google (sin credenciales aparte).
+- **Bot (Telegram ↔ Sheets/Drive)**: un proyecto de **Google Apps Script**
+  (carpeta `appsscript/`). Revisa mensajes nuevos de Telegram cada minuto
+  (`revisarTelegram`, colgada de un disparador de tiempo) — los Web Apps de
+  Apps Script no sirven como webhook de Telegram (siempre redirigen con 302,
+  y Telegram no sigue redirecciones), así que en vez de esperar a que
+  Telegram le avise, es Apps Script el que pregunta. Google lo aloja gratis,
+  sin que tengas que desplegar nada en otro lado. Lee y escribe directamente
+  en Sheets y Drive usando tu propia cuenta de Google (sin credenciales
+  aparte).
 - **Almacenamiento**: dos Google Sheets (pueden ser el mismo, o distintos):
   - **Hoja de Control** (fija, configurada una vez): usuarios registrados,
     especialidades configurables, y el estado de la conversación de cada
@@ -112,9 +115,11 @@ cuenta.
 1. Ve a [script.google.com](https://script.google.com) → **Nuevo proyecto**.
 2. Copia el contenido de cada archivo de la carpeta `appsscript/` de este
    repo (`Schema.gs`, `Sheets.gs`, `Store.gs`, `Telegram.gs`, `Drive.gs`,
-   `Code.gs`, `Recordatorios.gs`) como un archivo `.gs` con el mismo nombre
-   en tu proyecto. (Si prefieres usar [clasp](https://github.com/google/clasp),
-   puedes subir la carpeta completa con `clasp push`.)
+   `Formato.gs`, `Recordatorios.gs`, `Comandos.gs`, `Polling.gs`, `Code.gs`)
+   como un archivo `.gs` con el mismo nombre en tu proyecto — o pega todo
+   junto en un solo archivo, da igual, Apps Script no distingue. (Si
+   prefieres usar [clasp](https://github.com/google/clasp), puedes subir la
+   carpeta completa con `clasp push`.)
 3. En **Configuración del proyecto → Propiedades de secuencia de comandos**
    (Project Settings → Script properties), agrega:
    - `TELEGRAM_BOT_TOKEN`
@@ -126,18 +131,28 @@ cuenta.
 4. Comparte el Google Sheet de `CONTROL_SHEET_ID` (y cualquier hoja que
    vayas a usar como destino con `/hoja`) como **Editor** con la cuenta de
    Google que va a publicar el proyecto.
-5. **Implementar → Nueva implementación → Aplicación web**:
-   - Ejecutar como: **Yo (tu cuenta)**
-   - Quién tiene acceso: **Cualquier usuario**
-   - Copia la URL que termina en `/exec`.
-6. Registra esa URL como webhook de Telegram:
-   ```
-   curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=<URL_DEL_WEB_APP>"
-   ```
-7. (Opcional) Para los recordatorios automáticos: en el editor de Apps
-   Script, abre **Disparadores (Triggers) → Añadir disparador**, elige la
-   función `enviarRecordatoriosDiarios`, tipo "Basado en tiempo", y la
-   frecuencia que prefieras (ej. una vez al día).
+5. **No uses un webhook de Telegram.** Los Web Apps de Apps Script siempre
+   responden con una redirección (302) en la URL `/exec` — así funciona el
+   servicio para todas las ejecuciones — y Telegram no sigue redirecciones al
+   entregar un webhook, así que nunca llega nada (`Wrong response from the
+   webhook: 302 Found`). En vez de eso, el bot usa **polling**: Apps Script
+   pregunta a Telegram cada minuto si hay mensajes nuevos.
+   - Primero borra cualquier webhook que hayas registrado antes:
+     ```
+     https://api.telegram.org/bot<TOKEN>/deleteWebhook
+     ```
+   - En el editor, elige `revisarTelegram` en el desplegable de funciones y
+     ejecútala una vez para probar.
+   - Luego **Disparadores (Triggers) → Añadir disparador**: función
+     `revisarTelegram`, tipo "Basado en tiempo" → "Temporizador de minutos" →
+     **cada minuto**. Con esto las respuestas del bot llegan casi al
+     instante (máximo ~1 minuto de rezago).
+6. (Ya no hace falta implementar como Aplicación web para que el bot
+   funcione — `doPost`/`doGet` quedan sin uso. Puedes igual dejarlos
+   desplegados por si más adelante quieres exponer un endpoint propio.)
+7. (Opcional) Para los recordatorios automáticos: agrega otro disparador
+   igual al anterior, pero para la función `enviarRecordatoriosDiarios`, con
+   la frecuencia que prefieras (ej. una vez al día).
 
 La primera vez que uses `/script`, Google puede pedirte volver a autorizar el
 proyecto (aparece al ejecutar cualquier función manualmente en el editor, o
