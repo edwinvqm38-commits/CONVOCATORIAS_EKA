@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 RESPUESTA_BOTONES = {
     "disponible": "✅ Disponible",
     "no_disponible": "❌ No disponible",
-    "tal_vez": "🤔 Tal vez / depende",
+    "posiblemente": "🤔 Posiblemente",
 }
 
 

@@ -12,7 +12,7 @@ from agents.supabase_client import get_supabase
 ETIQUETAS = {
     "disponible": "✅ Disponible",
     "no_disponible": "❌ No disponible",
-    "tal_vez": "🤔 Tal vez",
+    "posiblemente": "🤔 Posiblemente",
     None: "⏳ Sin responder",
 }
 
@@ -40,7 +40,7 @@ def main():
     print(f"Total destinatarios: {len(resumen)}")
     print()
 
-    conteo = {"disponible": 0, "no_disponible": 0, "tal_vez": 0, None: 0}
+    conteo = {"disponible": 0, "no_disponible": 0, "posiblemente": 0, None: 0}
     for fila in resumen:
         conteo[fila.get("respuesta")] = conteo.get(fila.get("respuesta"), 0) + 1
 

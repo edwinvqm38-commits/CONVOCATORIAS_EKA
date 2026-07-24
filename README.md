@@ -6,21 +6,33 @@ llevar el registro de respuestas en Supabase.
 
 ## Flujo
 
-1. Un administrador crea una **convocatoria** (fecha del servicio, planta,
-   descripción, fecha límite de respuesta) en la tabla `convocatorias`.
-2. Un script (`scripts/enviar_convocatoria.py`) envía el anuncio por Telegram
-   a todos los usuarios registrados (o a un grupo específico), con botones:
+1. Un administrador escribe **/convocar** al bot. El bot le pregunta, uno por
+   uno: planta, título, fecha del servicio, hora, descripción y fecha límite
+   de respuesta (los campos opcionales se saltan con `-`). Al final muestra
+   un resumen con 3 botones: enviar ahora, guardar como borrador, o cancelar.
+   (También se puede crear por script/Supabase directo con
+   `scripts/crear_convocatoria.py`, sin pasar por el chat.)
+2. Al confirmar "enviar ahora", el bot manda el anuncio por Telegram a todos
+   los usuarios registrados, con botones:
    - ✅ Disponible
    - ❌ No disponible
-   - 🤔 Tal vez / Depende
-3. Cuando el usuario toca un botón, un webhook (Supabase Edge Function
+   - 🤔 Posiblemente
+3. Cuando el usuario toca un botón, el mismo webhook (Supabase Edge Function
    `telegram-bot`) recibe el `callback_query`, guarda la respuesta en
    `convocatoria_respuestas` y edita el mensaje mostrando la confirmación.
 4. El administrador puede pedir un resumen (`/resumen <id>` en el bot, o
    `scripts/reporte_convocatoria.py`) con quién confirmó, quién no y quién no
    ha respondido.
-5. Opcionalmente, `scripts/enviar_recordatorios.py` reenvía el aviso solo a
-   quienes no han respondido, antes de la fecha límite.
+5. Opcionalmente, `scripts/enviar_recordatorios.py` (o el workflow diario de
+   GitHub Actions) reenvía el aviso solo a quienes no han respondido, antes de
+   la fecha límite.
+
+**Importante sobre Telegram**: un bot solo puede escribirle a alguien que ya
+le escribió primero (o le dio `/start`) — es una regla de la plataforma, no
+de este sistema, para evitar spam. Por eso el primer paso siempre es que cada
+persona abra el chat del bot y presione Start (o escriba `/start`) una sola
+vez; después de eso, las convocatorias les llegan solas sin que tengan que
+volver a escribir nada.
 
 ## Componentes
 
