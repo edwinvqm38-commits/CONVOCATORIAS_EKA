@@ -711,11 +711,31 @@ function manejarUpdate(update) {
   }
 }
 
+// Telegram reintenta un update si el webhook tarda en responder (Sheets
+// puede tomar unos segundos). Sin esto, cada reintento repite el mensaje
+// entero. update_id es unico por update, asi que basta con recordar los ya
+// procesados un rato (CacheService, maximo 6 horas por entrada).
+function yaFueProcesado(updateId) {
+  if (updateId === undefined || updateId === null) return false;
+  return CacheService.getScriptCache().get("update_" + updateId) !== null;
+}
+
+function marcarProcesado(updateId) {
+  if (updateId === undefined || updateId === null) return;
+  CacheService.getScriptCache().put("update_" + updateId, "1", 21600);
+}
+
 /** Punto de entrada del Web App: configúralo como webhook de Telegram
  * (ver README) apuntando a la URL /exec de este deployment. */
 function doPost(e) {
   try {
     var update = JSON.parse(e.postData.contents);
+
+    if (yaFueProcesado(update.update_id)) {
+      return ContentService.createTextOutput("OK");
+    }
+    marcarProcesado(update.update_id);
+
     manejarUpdate(update);
   } catch (error) {
     console.error("TELEGRAM_WEBHOOK_ERROR: " + error + "\n" + (error && error.stack));
