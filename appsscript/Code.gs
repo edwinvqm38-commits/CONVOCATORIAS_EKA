@@ -730,13 +730,16 @@ function marcarProcesado(updateId) {
 function doPost(e) {
   try {
     var update = JSON.parse(e.postData.contents);
+    Logger.log("UPDATE RECIBIDO: " + JSON.stringify(update));
 
     if (yaFueProcesado(update.update_id)) {
+      Logger.log("Update " + update.update_id + " ya procesado antes, se ignora.");
       return ContentService.createTextOutput("OK");
     }
     marcarProcesado(update.update_id);
 
     manejarUpdate(update);
+    Logger.log("manejarUpdate termino sin excepciones.");
   } catch (error) {
     console.error("TELEGRAM_WEBHOOK_ERROR: " + error + "\n" + (error && error.stack));
   }

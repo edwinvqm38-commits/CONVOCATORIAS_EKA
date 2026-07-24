@@ -18,6 +18,8 @@ function llamarTelegram(metodo, payload) {
 
   var status = response.getResponseCode();
   var texto = response.getContentText();
+  // Nunca loguear "url" (trae el token). Solo metodo + respuesta de Telegram.
+  Logger.log("TELEGRAM " + metodo + " -> " + status + ": " + texto.slice(0, 300));
 
   if (status >= 300) {
     throw new Error("Telegram error " + status + ": " + texto);
