@@ -65,6 +65,20 @@ function generarId() {
   return Date.now().toString(36) + Math.floor(Math.random() * 46656).toString(36);
 }
 
+/** Nombre de archivo del CV a partir del nombre y DNI ya capturados (mucho
+ * mas ubicable en Drive que el nombre original que puso cada quien, que a
+ * veces viene raro o vacio). Si falta alguno de los dos, cae al chat_id. */
+function construirNombreArchivoCv(nombresCompletos, dni, chatId) {
+  var partes = [nombresCompletos, dni].filter(Boolean);
+  var base = partes.length ? partes.join(" - ") : "CV_" + String(chatId);
+
+  return base
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\\/:*?"<>|]/g, "")
+    .trim();
+}
+
 function validarFecha(valor) {
   return /^\d{4}-\d{2}-\d{2}$/.test(valor.trim());
 }
@@ -151,6 +165,7 @@ function helpTexto(esAdminFlag) {
       "<b>/especialidad_agregar Nombre</b> — Agrega una especialidad a la lista de botones.",
       "<b>/especialidades</b> — Lista las especialidades configuradas.",
       "<b>/resumen convocatoria_id</b> — Cuenta de disponibles / no disponibles / sin responder.",
+      "<b>/script</b> — Te envía el código actual del bot (archivos .gs) para pegarlo en un proyecto nuevo.",
     ])
     .join("\n");
 }
@@ -177,6 +192,7 @@ function manejarHoja(chatId, texto) {
 
   ensureTargetSheets(spreadsheetId);
   setActiveSheet(spreadsheetId, titulo);
+  aplicarFormatoProfesional(spreadsheetId);
   enviarMensaje(chatId, "✅ A partir de ahora las convocatorias y respuestas se guardan en:\n<b>" + escaparHtml(titulo) + "</b>");
 }
 
@@ -188,10 +204,62 @@ function manejarEspecialidadAgregar(chatId, texto) {
   }
 
   var agregada = addEspecialidad(nombre);
+  if (agregada) {
+    try {
+      aplicarFormatoProfesional(getActiveSheetId());
+    } catch (error) {
+      // El formato es cosmetico; si falla no debe bloquear el alta.
+    }
+  }
   enviarMensaje(
     chatId,
     agregada ? "✅ Especialidad agregada: " + escaparHtml(nombre) : "Esa especialidad ya existía: " + escaparHtml(nombre),
   );
+}
+
+/** Lee el codigo fuente ACTUAL de este mismo proyecto (via la API de Apps
+ * Script) y lo manda por Telegram, archivo por archivo, para que el admin
+ * siempre pueda recuperarlo sin depender de otra conversacion. Requiere el
+ * scope "script.projects.readonly" declarado en appsscript.json. */
+function manejarComandoScript(chatId) {
+  var scriptId = ScriptApp.getScriptId();
+  var token = ScriptApp.getOAuthToken();
+
+  var response = UrlFetchApp.fetch("https://script.googleapis.com/v1/projects/" + scriptId + "/content", {
+    headers: { Authorization: "Bearer " + token },
+    muteHttpExceptions: true,
+  });
+
+  if (response.getResponseCode() >= 300) {
+    enviarMensaje(chatId, "⚠️ No pude leer el código del proyecto:\n" + escaparHtml(response.getContentText()));
+    return;
+  }
+
+  var datos = JSON.parse(response.getContentText());
+  var archivos = datos.files || [];
+
+  if (!archivos.length) {
+    enviarMensaje(chatId, "⚠️ No encontré archivos en este proyecto.");
+    return;
+  }
+
+  enviarMensaje(
+    chatId,
+    "📦 Aquí tienes el código actual del bot (" +
+      archivos.length +
+      " archivo(s)). Pégalos tal cual, con el mismo nombre, en un proyecto nuevo de Apps Script.",
+  );
+
+  archivos.forEach(function (archivo) {
+    var extension = archivo.type === "JSON" ? "json" : archivo.type === "HTML" ? "html" : "gs";
+    var nombreArchivo = archivo.name + "." + extension;
+    var blob = Utilities.newBlob(archivo.source, "text/plain", nombreArchivo);
+    try {
+      enviarDocumento(chatId, blob);
+    } catch (error) {
+      enviarMensaje(chatId, "⚠️ No pude enviar " + nombreArchivo + ": " + escaparHtml(String(error)));
+    }
+  });
 }
 
 function manejarEspecialidadesListar(chatId) {
@@ -494,7 +562,13 @@ function manejarPasoRespuesta(chatId, sesion, message) {
       return;
     }
 
-    var nombreSugerido = "CV_" + String(chatId);
+    var filaActual = findRow(spreadsheetId, RESPUESTAS_SHEET, RESPUESTAS_HEADERS, matchFn);
+    var nombreSugerido = construirNombreArchivoCv(
+      filaActual && filaActual.nombres_completos,
+      filaActual && filaActual.dni,
+      chatId,
+    );
+
     var urlDrive;
     try {
       urlDrive = guardarCvEnDrive(message.document.file_id, nombreSugerido, message.document.file_name);
@@ -503,7 +577,9 @@ function manejarPasoRespuesta(chatId, sesion, message) {
       return;
     }
 
-    upsertRow(spreadsheetId, RESPUESTAS_SHEET, RESPUESTAS_HEADERS, matchFn, { cv_drive_url: urlDrive });
+    upsertRow(spreadsheetId, RESPUESTAS_SHEET, RESPUESTAS_HEADERS, matchFn, {
+      cv_drive_url: '=HYPERLINK("' + urlDrive + '","📎 Ver CV")',
+    });
     deleteSession(chatId);
     enviarMensaje(chatId, "✅ ¡Gracias! Tu registro (incluido tu CV) quedó completo.");
     return;
@@ -516,7 +592,7 @@ function manejarPasoRespuesta(chatId, sesion, message) {
 
   var campo = paso.replace("resp_", "");
   var actualizacion = {};
-  actualizacion[campo] = texto;
+  actualizacion[campo] = campo === "telefono" ? construirLinkWhatsApp(texto) : texto;
   upsertRow(spreadsheetId, RESPUESTAS_SHEET, RESPUESTAS_HEADERS, matchFn, actualizacion);
 
   var indiceActual = ORDEN_RESPUESTA.indexOf(paso);
@@ -612,6 +688,12 @@ function manejarUpdate(update) {
         } else {
           manejarResumen(msgChatId, convocatoriaId);
         }
+      }
+    } else if (texto === "/script") {
+      if (!esAdmin(msgChatId)) {
+        enviarMensaje(msgChatId, "🔒 Este comando es solo para administradores.");
+      } else {
+        manejarComandoScript(msgChatId);
       }
     } else if (
       sesion &&

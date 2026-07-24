@@ -54,3 +54,23 @@ function responderCallback(callbackId, texto) {
     show_alert: false,
   });
 }
+
+/** Envia un archivo (Blob) por Telegram. UrlFetchApp arma el
+ * multipart/form-data automaticamente cuando el payload trae un Blob. */
+function enviarDocumento(chatId, blob, caption) {
+  var token = getScriptProp("TELEGRAM_BOT_TOKEN");
+  var url = "https://api.telegram.org/bot" + token + "/sendDocument";
+
+  var payload = { chat_id: String(chatId), document: blob };
+  if (caption) payload.caption = caption;
+
+  var response = UrlFetchApp.fetch(url, {
+    method: "post",
+    payload: payload,
+    muteHttpExceptions: true,
+  });
+
+  if (response.getResponseCode() >= 300) {
+    throw new Error("Telegram sendDocument error: " + response.getContentText());
+  }
+}

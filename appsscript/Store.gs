@@ -147,18 +147,12 @@ function upsertUsuario(chatId, datos) {
   var ahora = new Date().toISOString();
 
   if (existente) {
-    updateRowInSheet(
-      controlId,
-      USUARIOS_SHEET,
-      USUARIOS_HEADERS,
-      existente._rowNumber,
-      Object.assign({}, existente, {
-        telegram_user_id: datos.telegramUserId || existente.telegram_user_id,
-        username: datos.username || existente.username,
-        estado: "activo",
-        ultima_actividad: ahora,
-      }),
-    );
+    updateRowFields(controlId, USUARIOS_SHEET, USUARIOS_HEADERS, existente._rowNumber, {
+      telegram_user_id: datos.telegramUserId || existente.telegram_user_id,
+      username: datos.username || existente.username,
+      estado: "activo",
+      ultima_actividad: ahora,
+    });
     return;
   }
 

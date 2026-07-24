@@ -53,6 +53,19 @@ function updateRowInSheet(spreadsheetId, sheetName, headers, rowNumber, rowObjec
   sheet.getRange(rowNumber, 1, 1, headers.length).setValues([valores]);
 }
 
+/** Actualiza solo las columnas presentes en partialObject, sin tocar el
+ * resto de la fila. A diferencia de updateRowInSheet (que reescribe toda la
+ * fila), esto no rompe formulas (ej. el link de WhatsApp en "telefono") que
+ * ya estén en otras columnas de esa misma fila. */
+function updateRowFields(spreadsheetId, sheetName, headers, rowNumber, partialObject) {
+  var sheet = ensureSheetWithHeaders(spreadsheetId, sheetName, headers);
+  Object.keys(partialObject).forEach(function (clave) {
+    var colIndex = headers.indexOf(clave);
+    if (colIndex === -1) return;
+    sheet.getRange(rowNumber, colIndex + 1).setValue(partialObject[clave]);
+  });
+}
+
 function deleteRowInSheet(spreadsheetId, sheetName, rowNumber) {
   var sheet = SpreadsheetApp.openById(spreadsheetId).getSheetByName(sheetName);
   if (sheet && rowNumber <= sheet.getLastRow()) {
@@ -71,8 +84,7 @@ function findRow(spreadsheetId, sheetName, headers, predicateFn) {
 function upsertRow(spreadsheetId, sheetName, headers, predicateFn, rowObject) {
   var existente = findRow(spreadsheetId, sheetName, headers, predicateFn);
   if (existente) {
-    var combinado = Object.assign({}, existente, rowObject);
-    updateRowInSheet(spreadsheetId, sheetName, headers, existente._rowNumber, combinado);
+    updateRowFields(spreadsheetId, sheetName, headers, existente._rowNumber, rowObject);
   } else {
     appendRowToSheet(spreadsheetId, sheetName, headers, rowObject);
   }

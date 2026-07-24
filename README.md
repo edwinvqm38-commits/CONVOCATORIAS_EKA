@@ -49,6 +49,11 @@ cuenta de Google, con **Google Apps Script**.
    Almacenero, Chofer, Sup. Electricista, Sup. Seguridad.
 4. **`/resumen <convocatoria_id>`** — cuenta rápida de disponibles / no
    disponibles / posiblemente para esa convocatoria.
+5. **`/script`** — te manda por Telegram el código actual del bot (todos los
+   archivos `.gs`), leyéndolo directo del proyecto en ese momento. Úsalo
+   cuando necesites armar el bot en un Google Sheet/cuenta nueva y no
+   recuerdes qué pegar: siempre te manda la versión real que está corriendo,
+   no una copia vieja.
 
 ## Flujo para el usuario convocado
 
@@ -59,12 +64,32 @@ cuenta de Google, con **Google Apps Script**.
    residencia**, su **especialidad** (con botones), una **experiencia
    breve** (texto o nota de voz), y por último **adjuntar su CV** (PDF o
    Word) directo en el chat.
-3. En cuanto sube el CV, el bot lo guarda en Drive y confirma
-   automáticamente — no hace falta ningún botón de "enviado".
+3. En cuanto sube el CV, el bot lo guarda en Drive **con el archivo renombrado
+   a "Nombres completos - DNI"** (en vez del nombre original que haya puesto
+   la persona, que a veces viene raro o vacío) y confirma automáticamente —
+   no hace falta ningún botón de "enviado".
 4. Todo queda guardado como una fila en la pestaña `Respuestas` de la hoja
    activa, con las columnas en el mismo orden en que se preguntó (nombre,
    DNI, teléfono, lugar, especialidad, experiencia, CV), y la disponibilidad
-   más la fecha de respuesta al final de la fila.
+   más la fecha de respuesta al final de la fila. El **teléfono** queda como
+   un link para escribir por WhatsApp con un tap/click, y el **CV** como un
+   link "📎 Ver CV" directo al archivo en Drive.
+
+## Formato de la hoja `Respuestas`
+
+Cada vez que usas `/hoja` (o agregas una especialidad con
+`/especialidad_agregar`), el bot le aplica formato a la pestaña activa:
+
+- Encabezado en negrita y fila congelada.
+- Columna **Especialidad**: lista desplegable (para si alguien edita a mano)
+  y un color de fondo distinto por especialidad.
+- Columna **Respuesta** (disponibilidad): verde/rojo/amarillo según
+  disponible / no disponible / posiblemente.
+- Columna **Teléfono**: link clickeable a WhatsApp (`wa.me`). Los links
+  `tel:` no son confiables dentro de Google Sheets, por eso se usa WhatsApp
+  como vía principal para llamar o escribir. Asume números peruanos de 9
+  dígitos si no traen código de país.
+- Columna **CV**: link clickeable directo al archivo en Drive.
 
 **Importante sobre Telegram**: un bot solo puede escribirle a alguien que ya
 le escribió primero (o le dio `/start`) — es una regla de la plataforma, no
@@ -113,6 +138,13 @@ cuenta.
    Script, abre **Disparadores (Triggers) → Añadir disparador**, elige la
    función `enviarRecordatoriosDiarios`, tipo "Basado en tiempo", y la
    frecuencia que prefieras (ej. una vez al día).
+
+La primera vez que uses `/script`, Google puede pedirte volver a autorizar el
+proyecto (aparece al ejecutar cualquier función manualmente en el editor, o
+lo notarás porque `/script` fallará con un error de permisos) — es porque ese
+comando necesita permiso para leer el propio código del proyecto
+(`script.projects.readonly`, ya declarado en `appsscript.json`). Solo hace
+falta aceptar una vez.
 
 Con esto el bot queda funcionando 100% dentro de tu cuenta de Google — no
 hay que desplegar nada en Vercel, Supabase, ni ningún otro servicio.
