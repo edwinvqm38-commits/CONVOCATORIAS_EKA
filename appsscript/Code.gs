@@ -403,9 +403,18 @@ function manejarConfirmacionConvocar(chatId, callbackId, accion) {
   appendRowToSheet(spreadsheetId, CONVOCATORIAS_SHEET, CONVOCATORIAS_HEADERS, convocatoria);
   deleteSession(chatId);
 
+  var link = linkConvocatoria(convocatoria.id);
+  var lineaLink = link
+    ? "\n\n🔗 Link para compartir (WhatsApp, redes, donde quieras): quien lo abra por primera vez queda registrado y ve esta convocatoria directo:\n" +
+      link
+    : "";
+
   if (accion === "borrador") {
     responderCallback(callbackId, "Guardada como borrador.");
-    enviarMensaje(chatId, "💾 Convocatoria guardada como borrador.\n\nID: <code>" + convocatoria.id + "</code>");
+    enviarMensaje(
+      chatId,
+      "💾 Convocatoria guardada como borrador.\n\nID: <code>" + convocatoria.id + "</code>" + lineaLink,
+    );
     return;
   }
 
@@ -419,8 +428,57 @@ function manejarConfirmacionConvocar(chatId, callbackId, accion) {
       convocatoria.id +
       "</code>\n\nUsa /resumen " +
       convocatoria.id +
-      " para ver las respuestas.",
+      " para ver las respuestas." +
+      lineaLink,
   );
+}
+
+/** Username del bot, para armar el link t.me/<username>?start=conv_<id>.
+ * Se cachea en propiedades del proyecto para no llamar a getMe cada vez. */
+function obtenerUsernameBot() {
+  var props = PropertiesService.getScriptProperties();
+  var cacheado = props.getProperty("BOT_USERNAME_CACHE");
+  if (cacheado) return cacheado;
+
+  try {
+    var info = llamarTelegram("getMe", {});
+    var username = info.result && info.result.username;
+    if (username) props.setProperty("BOT_USERNAME_CACHE", username);
+    return username || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function linkConvocatoria(convocatoriaId) {
+  var username = obtenerUsernameBot();
+  return username ? "https://t.me/" + username + "?start=conv_" + convocatoriaId : null;
+}
+
+/** Maneja /start, con o sin parametro de deep-link (t.me/bot?start=conv_ID).
+ * Si trae un id de convocatoria valido, en vez del saludo generico le manda
+ * esa convocatoria puntual con sus botones -- asi el link se puede publicar
+ * (Facebook, WhatsApp, LinkedIn) y sirve como puerta de entrada nueva. */
+function manejarStart(chatId, payload) {
+  var match = payload && payload.match(/^conv_(.+)$/);
+
+  if (!match) {
+    enviarMensaje(chatId, bienvenidaTexto());
+    return;
+  }
+
+  var spreadsheetId = getActiveSheetId();
+  var convocatoria = findRow(spreadsheetId, CONVOCATORIAS_SHEET, CONVOCATORIAS_HEADERS, function (row) {
+    return row.id === match[1];
+  });
+
+  if (!convocatoria) {
+    enviarMensaje(chatId, bienvenidaTexto());
+    return;
+  }
+
+  enviarMensaje(chatId, "🤖 <b>Convocatorias EKA</b>\n\nQuedaste registrado. Esta es la convocatoria vigente:");
+  enviarMensaje(chatId, textoConvocatoria(convocatoria), botonesConvocatoria(convocatoria.id));
 }
 
 function manejarResumen(chatId, convocatoriaId) {
@@ -647,8 +705,9 @@ function manejarUpdate(update) {
 
     var sesion = getSession(msgChatId);
 
-    if (texto === "/start") {
-      enviarMensaje(msgChatId, bienvenidaTexto());
+    if (texto === "/start" || texto.indexOf("/start ") === 0) {
+      var parametroStart = texto.indexOf("/start ") === 0 ? texto.slice(7).trim() : "";
+      manejarStart(msgChatId, parametroStart);
     } else if (texto === "/ayuda" || texto === "/help") {
       enviarMensaje(msgChatId, helpTexto(esAdmin(msgChatId)));
     } else if (texto === "/cancelar") {
