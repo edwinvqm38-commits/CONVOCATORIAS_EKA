@@ -1,14 +1,32 @@
 import logging
+import random
+import time
 from datetime import date, datetime
+
+from agents import schema
+from agents.sheets_client import SheetTable
 
 logger = logging.getLogger(__name__)
 
 
-class ConvocatoriaAgent:
-    """Crea y consulta convocatorias (paradas de planta) en Supabase."""
+def _generar_id() -> str:
+    return f"{int(time.time() * 1000):x}{random.randint(0, 0xffff):04x}"
 
-    def __init__(self, supabase):
-        self.supabase = supabase
+
+class ConvocatoriaAgent:
+    """Crea y consulta convocatorias (paradas de planta) en Google Sheets."""
+
+    def __init__(self, service, spreadsheet_id: str):
+        self.service = service
+        self.spreadsheet_id = spreadsheet_id
+        self.convocatorias = SheetTable(
+            service, spreadsheet_id, schema.CONVOCATORIAS_SHEET, schema.CONVOCATORIAS_HEADERS
+        )
+        self.respuestas = SheetTable(
+            service, spreadsheet_id, schema.RESPUESTAS_SHEET, schema.RESPUESTAS_HEADERS
+        )
+        self.convocatorias.ensure()
+        self.respuestas.ensure()
 
     def crear(
         self,
@@ -20,67 +38,47 @@ class ConvocatoriaAgent:
         fecha_limite_respuesta: datetime | None = None,
         creado_por: str | None = None,
     ) -> dict:
-        payload = {
+        fila = {
+            "id": _generar_id(),
             "titulo": titulo,
+            "planta": planta or "",
             "fecha_servicio": fecha_servicio.isoformat(),
-            "planta": planta,
-            "descripcion": descripcion,
-            "hora_servicio": hora_servicio,
-            "fecha_limite_respuesta": (
-                fecha_limite_respuesta.isoformat() if fecha_limite_respuesta else None
-            ),
-            "creado_por": creado_por,
+            "hora_servicio": hora_servicio or "",
+            "descripcion": descripcion or "",
+            "fecha_limite_respuesta": fecha_limite_respuesta.isoformat() if fecha_limite_respuesta else "",
             "estado": "borrador",
+            "creado_por": creado_por or "",
+            "creado_en": datetime.utcnow().isoformat(),
+            "enviada_en": "",
         }
-        response = self.supabase.table("convocatorias").insert(payload).execute()
-        return response.data[0]
+        self.convocatorias.append_row(fila)
+        return fila
 
     def obtener(self, convocatoria_id: str) -> dict | None:
-        response = (
-            self.supabase.table("convocatorias")
-            .select("*")
-            .eq("id", convocatoria_id)
-            .limit(1)
-            .execute()
-        )
-        filas = response.data or []
-        return filas[0] if filas else None
+        return self.convocatorias.find_row(lambda row: row["id"] == convocatoria_id)
 
     def marcar_enviada(self, convocatoria_id: str) -> None:
-        self.supabase.table("convocatorias").update(
-            {"estado": "enviada", "enviada_at": datetime.utcnow().isoformat()}
-        ).eq("id", convocatoria_id).execute()
-
-    def usuarios_activos(self) -> list[dict]:
-        response = (
-            self.supabase.table("convocatoria_usuarios")
-            .select("telegram_chat_id, nombre, empresa, area")
-            .eq("estado", "activo")
-            .execute()
+        self.convocatorias.upsert_row(
+            lambda row: row["id"] == convocatoria_id,
+            {"estado": "enviada", "enviada_en": datetime.utcnow().isoformat()},
         )
-        return response.data or []
 
-    def registrar_envio(self, convocatoria_id: str, chat_id: str, message_id: int | None) -> None:
-        self.supabase.table("convocatoria_envios").upsert(
-            {
-                "convocatoria_id": convocatoria_id,
-                "telegram_chat_id": chat_id,
-                "telegram_message_id": message_id,
-                "estado_envio": "enviado" if message_id else "fallido",
-            },
-            on_conflict="convocatoria_id,telegram_chat_id",
-        ).execute()
+    def registrar_respuesta_envio(self, convocatoria_id: str, chat_id: str) -> None:
+        """Deja un registro vacio (solo enviado) para poder distinguir a quien
+        le llego el mensaje pero aun no responde, del resto de usuarios."""
+        self.respuestas.upsert_row(
+            lambda row: row["convocatoria_id"] == convocatoria_id and row["telegram_chat_id"] == chat_id,
+            {"convocatoria_id": convocatoria_id, "telegram_chat_id": chat_id},
+        )
 
     def resumen(self, convocatoria_id: str) -> list[dict]:
-        response = (
-            self.supabase.table("convocatoria_resumen_v")
-            .select("*")
-            .eq("convocatoria_id", convocatoria_id)
-            .execute()
-        )
-        return response.data or []
+        return [
+            fila
+            for fila in self.respuestas.get_all_rows()
+            if fila["convocatoria_id"] == convocatoria_id
+        ]
 
     def envios_pendientes(self, convocatoria_id: str) -> list[dict]:
-        """Destinatarios que recibieron el envio pero aun no respondieron."""
-        resumen = self.resumen(convocatoria_id)
-        return [fila for fila in resumen if not fila.get("respuesta")]
+        """Filas que recibieron el envio pero aun no marcaron disponible/no
+        disponible/posiblemente (columna 'respuesta' vacia)."""
+        return [fila for fila in self.resumen(convocatoria_id) if not fila.get("respuesta")]

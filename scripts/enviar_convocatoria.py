@@ -8,9 +8,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import load_dotenv
 
+from agents import store
 from agents.agent_convocatoria import ConvocatoriaAgent
 from agents.agent_notify import NotifyAgent
-from agents.supabase_client import get_supabase
+from agents.sheets_client import get_sheets_service
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -26,15 +27,16 @@ def main():
     load_dotenv()
     args = parse_args()
 
-    supabase = get_supabase()
-    agent = ConvocatoriaAgent(supabase)
+    service = get_sheets_service()
+    spreadsheet_id = store.get_active_sheet_id(service)
+    agent = ConvocatoriaAgent(service, spreadsheet_id)
     notifier = NotifyAgent()
 
     convocatoria = agent.obtener(args.id)
     if not convocatoria:
-        raise SystemExit(f"No existe una convocatoria con id={args.id}")
+        raise SystemExit(f"No existe una convocatoria con id={args.id} en la hoja activa")
 
-    usuarios = agent.usuarios_activos()
+    usuarios = store.get_usuarios_activos(service)
     logger.info("Usuarios activos a convocar: %s", len(usuarios))
 
     enviados = 0
@@ -43,9 +45,9 @@ def main():
     for usuario in usuarios:
         chat_id = usuario["telegram_chat_id"]
         message_id = notifier.enviar_a_usuario(convocatoria, chat_id)
-        agent.registrar_envio(convocatoria["id"], chat_id, message_id)
 
         if message_id:
+            agent.registrar_respuesta_envio(convocatoria["id"], chat_id)
             enviados += 1
         else:
             fallidos += 1

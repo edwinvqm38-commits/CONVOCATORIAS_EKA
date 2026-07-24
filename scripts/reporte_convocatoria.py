@@ -6,14 +6,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import load_dotenv
 
+from agents import store
 from agents.agent_convocatoria import ConvocatoriaAgent
-from agents.supabase_client import get_supabase
+from agents.sheets_client import get_sheets_service
 
 ETIQUETAS = {
     "disponible": "✅ Disponible",
     "no_disponible": "❌ No disponible",
     "posiblemente": "🤔 Posiblemente",
-    None: "⏳ Sin responder",
+    "": "⏳ Sin responder",
 }
 
 
@@ -27,12 +28,13 @@ def main():
     load_dotenv()
     args = parse_args()
 
-    supabase = get_supabase()
-    agent = ConvocatoriaAgent(supabase)
+    service = get_sheets_service()
+    spreadsheet_id = store.get_active_sheet_id(service)
+    agent = ConvocatoriaAgent(service, spreadsheet_id)
 
     convocatoria = agent.obtener(args.id)
     if not convocatoria:
-        raise SystemExit(f"No existe una convocatoria con id={args.id}")
+        raise SystemExit(f"No existe una convocatoria con id={args.id} en la hoja activa")
 
     resumen = agent.resumen(args.id)
 
@@ -40,19 +42,21 @@ def main():
     print(f"Total destinatarios: {len(resumen)}")
     print()
 
-    conteo = {"disponible": 0, "no_disponible": 0, "posiblemente": 0, None: 0}
+    conteo = {"disponible": 0, "no_disponible": 0, "posiblemente": 0, "": 0}
     for fila in resumen:
-        conteo[fila.get("respuesta")] = conteo.get(fila.get("respuesta"), 0) + 1
+        conteo[fila.get("respuesta", "")] = conteo.get(fila.get("respuesta", ""), 0) + 1
 
     for respuesta, etiqueta in ETIQUETAS.items():
         print(f"{etiqueta}: {conteo.get(respuesta, 0)}")
 
     print()
     print("Detalle:")
-    for fila in sorted(resumen, key=lambda f: (f.get("respuesta") is not None, f.get("nombre") or "")):
+    for fila in sorted(resumen, key=lambda f: (bool(f.get("respuesta")), f.get("nombre") or "")):
         nombre = fila.get("nombre") or fila["telegram_chat_id"]
-        etiqueta = ETIQUETAS.get(fila.get("respuesta"), fila.get("respuesta"))
-        print(f"  - {nombre}: {etiqueta}")
+        etiqueta = ETIQUETAS.get(fila.get("respuesta", ""), fila.get("respuesta"))
+        especialidad = fila.get("especialidad")
+        sufijo = f" — {especialidad}" if especialidad else ""
+        print(f"  - {nombre}: {etiqueta}{sufijo}")
 
 
 if __name__ == "__main__":

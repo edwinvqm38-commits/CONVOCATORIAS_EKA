@@ -8,9 +8,11 @@ import sys
 
 from dotenv import load_dotenv
 
+from agents import store
 from agents.agent_convocatoria import ConvocatoriaAgent
 from agents.agent_notify import NotifyAgent
-from agents.supabase_client import get_supabase
+from agents.schema import CONVOCATORIAS_HEADERS, CONVOCATORIAS_SHEET
+from agents.sheets_client import SheetTable, get_sheets_service
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,14 +24,15 @@ logger = logging.getLogger(__name__)
 def run_recordatorios() -> None:
     load_dotenv()
 
-    supabase = get_supabase()
-    agent = ConvocatoriaAgent(supabase)
+    service = get_sheets_service()
+    spreadsheet_id = store.get_active_sheet_id(service)
+    agent = ConvocatoriaAgent(service, spreadsheet_id)
     notifier = NotifyAgent()
 
-    convocatorias = (
-        supabase.table("convocatorias").select("*").eq("estado", "enviada").execute().data
-        or []
-    )
+    tabla_convocatorias = SheetTable(service, spreadsheet_id, CONVOCATORIAS_SHEET, CONVOCATORIAS_HEADERS)
+    convocatorias = [
+        fila for fila in tabla_convocatorias.get_all_rows() if fila.get("estado") == "enviada"
+    ]
     logger.info("Convocatorias enviadas y abiertas: %s", len(convocatorias))
 
     for convocatoria in convocatorias:
