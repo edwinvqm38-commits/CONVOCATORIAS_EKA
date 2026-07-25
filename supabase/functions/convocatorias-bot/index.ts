@@ -739,11 +739,7 @@ async function manejarPasoRespuesta(chatId: string, sesion: Sesion, message: Non
       urlDrive = await guardarCvEnDrive(message.document.file_id, nombreSugerido, message.document.file_name);
     } catch (error) {
       console.error("CV_DRIVE_UPLOAD_ERROR:", error);
-      return await sendMessage(
-        chatId,
-        "⚠️ No pude guardar tu CV. Detalle (temporal, para depurar):\n" +
-          escapeHtml(String((error as Error)?.message ?? error)),
-      );
+      return await sendMessage(chatId, "⚠️ No pude guardar tu CV. Intenta enviarlo de nuevo en unos minutos.");
     }
 
     await supabase.from("convocatoria_respuestas").update({ cv_drive_url: urlDrive }).eq(
