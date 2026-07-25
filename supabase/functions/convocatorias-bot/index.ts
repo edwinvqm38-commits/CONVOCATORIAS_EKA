@@ -249,7 +249,9 @@ async function subirArchivoADrive(
   return datos;
 }
 
-async function guardarCvEnDrive(fileId: string, nombreSugerido: string, nombreOriginal?: string): Promise<string> {
+async function descargarBytesTelegram(
+  fileId: string,
+): Promise<{ bytes: Uint8Array; mimeType: string; filePath: string }> {
   const infoResp = await fetch(`${TELEGRAM_API}/getFile?file_id=${encodeURIComponent(fileId)}`);
   const info = await infoResp.json();
   if (!info.ok) throw new Error("No se pudo resolver el archivo de Telegram: " + JSON.stringify(info));
@@ -257,13 +259,56 @@ async function guardarCvEnDrive(fileId: string, nombreSugerido: string, nombreOr
   const filePath: string = info.result.file_path;
   const fileResp = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`);
   const bytes = new Uint8Array(await fileResp.arrayBuffer());
-
-  const extension = (nombreOriginal || filePath).split(".").pop() || "pdf";
   const mimeType = fileResp.headers.get("content-type") || "application/octet-stream";
+
+  return { bytes, mimeType, filePath };
+}
+
+async function guardarCvEnDrive(fileId: string, nombreSugerido: string, nombreOriginal?: string): Promise<string> {
+  const { bytes, mimeType, filePath } = await descargarBytesTelegram(fileId);
+  const extension = (nombreOriginal || filePath).split(".").pop() || "pdf";
   const nombreArchivo = `${nombreSugerido}.${extension}`;
 
   const archivo = await subirArchivoADrive(nombreArchivo, mimeType, bytes);
   return archivo.webViewLink;
+}
+
+/** Transcribe una nota de voz con Gemini. Devuelve null (sin lanzar) si no
+ * hay GEMINI_API_KEY configurada o si Gemini no devuelve texto -- la
+ * experiencia por audio no debe bloquearse porque falle la transcripcion. */
+async function transcribirAudio(bytes: Uint8Array): Promise<string | null> {
+  const apiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
+  if (!apiKey) return null;
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text:
+                    "Transcribe este audio a texto en español. Devuelve unicamente la transcripcion, sin comentarios ni encabezados.",
+                },
+                { inlineData: { mimeType: "audio/ogg", data: base64FromBytes(bytes) } },
+              ],
+            },
+          ],
+        }),
+      },
+    );
+
+    const datos = await response.json();
+    const texto: string | undefined = datos?.candidates?.[0]?.content?.parts?.[0]?.text;
+    return texto?.trim() || null;
+  } catch (error) {
+    console.error("TRANSCRIPCION_ERROR:", error);
+    return null;
+  }
 }
 
 function construirNombreArchivoCv(nombresCompletos: string | null, dni: string | null, chatId: string): string {
@@ -656,9 +701,20 @@ async function manejarPasoRespuesta(chatId: string, sesion: Sesion, message: Non
 
   if (paso === "resp_experiencia") {
     const actualizacion: Record<string, unknown> = {};
-    if (message.voice) actualizacion.experiencia_audio_file_id = message.voice.file_id;
-    else if (texto) actualizacion.experiencia_texto = texto;
-    else return await sendMessage(chatId, "Envía tu experiencia en un mensaje de texto o una nota de voz.");
+    if (message.voice) {
+      actualizacion.experiencia_audio_file_id = message.voice.file_id;
+      try {
+        const { bytes } = await descargarBytesTelegram(message.voice.file_id);
+        const transcripcion = await transcribirAudio(bytes);
+        if (transcripcion) actualizacion.experiencia_texto = transcripcion;
+      } catch (error) {
+        console.error("TRANSCRIPCION_DESCARGA_ERROR:", error);
+      }
+    } else if (texto) {
+      actualizacion.experiencia_texto = texto;
+    } else {
+      return await sendMessage(chatId, "Envía tu experiencia en un mensaje de texto o una nota de voz.");
+    }
 
     await supabase.from("convocatoria_respuestas").update(actualizacion).eq("convocatoria_id", convocatoriaId).eq(
       "telegram_chat_id",
