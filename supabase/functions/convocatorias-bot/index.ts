@@ -5,8 +5,11 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const TELEGRAM_BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const ADMIN_CHAT_IDS = Deno.env.get("ADMIN_CHAT_IDS") ?? "";
-const GOOGLE_SERVICE_ACCOUNT_JSON = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_JSON") ?? "";
 const GOOGLE_DRIVE_CV_FOLDER_ID = Deno.env.get("GOOGLE_DRIVE_CV_FOLDER_ID") ?? "";
+const GOOGLE_OAUTH_CLIENT_ID = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID") ?? "";
+const GOOGLE_OAUTH_CLIENT_SECRET = Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET") ?? "";
+const GOOGLE_OAUTH_REFRESH_TOKEN = Deno.env.get("GOOGLE_OAUTH_REFRESH_TOKEN") ?? "";
+const OAUTH_REDIRECT_URI = "http://localhost";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
@@ -151,60 +154,50 @@ function linkConvocatoria(username: string | null, convocatoriaId: string): stri
   return username ? `https://t.me/${username}?start=conv_${convocatoriaId}` : null;
 }
 
-// --- Google Drive (cuenta de servicio, JWT firmado a mano con Web Crypto) --
+// --- Google Drive (OAuth de usuario, no cuenta de servicio) ----------------
+//
+// Las cuentas de servicio no tienen cuota propia de almacenamiento en Drive
+// (solo funcionan con Shared Drives, que requieren Google Workspace). Para
+// una cuenta Gmail normal hay que subir los archivos "como" un usuario real,
+// via OAuth con refresh_token -- ver /vincular_drive mas abajo para obtenerlo.
 
-async function obtenerTokenGoogle(scopes: string[]): Promise<string> {
-  const credenciales = JSON.parse(GOOGLE_SERVICE_ACCOUNT_JSON);
-  const encode = (obj: unknown) =>
-    btoa(JSON.stringify(obj)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-
-  const ahora = Math.floor(Date.now() / 1000);
-  const header = { alg: "RS256", typ: "JWT" };
-  const claims = {
-    iss: credenciales.client_email,
-    scope: scopes.join(" "),
-    aud: "https://oauth2.googleapis.com/token",
-    exp: ahora + 3600,
-    iat: ahora,
-  };
-
-  const sinFirmar = `${encode(header)}.${encode(claims)}`;
-  const clavePem = credenciales.private_key
-    .replace("-----BEGIN PRIVATE KEY-----", "")
-    .replace("-----END PRIVATE KEY-----", "")
-    .replaceAll(/\s/g, "");
-  const claveBinaria = Uint8Array.from(atob(clavePem), (c) => c.charCodeAt(0));
-
-  const claveCripto = await crypto.subtle.importKey(
-    "pkcs8",
-    claveBinaria.buffer as ArrayBuffer,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-
-  const firma = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    claveCripto,
-    new TextEncoder().encode(sinFirmar),
-  );
-  const firmaTexto = btoa(String.fromCharCode(...new Uint8Array(firma)))
-    .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-
-  const jwt = `${sinFirmar}.${firmaTexto}`;
-
+async function obtenerTokenGoogle(): Promise<string> {
   const respuesta = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
+      client_id: GOOGLE_OAUTH_CLIENT_ID,
+      client_secret: GOOGLE_OAUTH_CLIENT_SECRET,
+      refresh_token: GOOGLE_OAUTH_REFRESH_TOKEN,
+      grant_type: "refresh_token",
     }),
   });
 
   const datos = await respuesta.json();
-  if (!datos.access_token) throw new Error("No se pudo obtener token de Google: " + JSON.stringify(datos));
+  if (!datos.access_token) throw new Error("No se pudo refrescar el token de Google: " + JSON.stringify(datos));
   return datos.access_token;
+}
+
+/** Intercambia el codigo de autorizacion (de /vincular_drive) por un
+ * refresh_token duradero, que el admin debe guardar como secreto. */
+async function intercambiarCodigoOAuth(codigo: string): Promise<{ ok: boolean; mensaje: string }> {
+  const respuesta = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: GOOGLE_OAUTH_CLIENT_ID,
+      client_secret: GOOGLE_OAUTH_CLIENT_SECRET,
+      code: codigo,
+      grant_type: "authorization_code",
+      redirect_uri: OAUTH_REDIRECT_URI,
+    }),
+  });
+
+  const datos = await respuesta.json();
+  if (!datos.refresh_token) {
+    return { ok: false, mensaje: "No se recibió refresh_token. Respuesta de Google:\n" + JSON.stringify(datos) };
+  }
+  return { ok: true, mensaje: datos.refresh_token };
 }
 
 function base64FromBytes(bytes: Uint8Array): string {
@@ -221,7 +214,7 @@ async function subirArchivoADrive(
   mimeType: string,
   bytes: Uint8Array,
 ): Promise<{ id: string; webViewLink: string }> {
-  const accessToken = await obtenerTokenGoogle(["https://www.googleapis.com/auth/drive"]);
+  const accessToken = await obtenerTokenGoogle();
 
   const metadata: Record<string, unknown> = { name: nombreArchivo };
   if (GOOGLE_DRIVE_CV_FOLDER_ID) metadata.parents = [GOOGLE_DRIVE_CV_FOLDER_ID];
@@ -457,6 +450,7 @@ function helpTexto(admin: boolean): string {
     "<b>/especialidad_agregar Nombre</b> — Agrega una especialidad a la lista de botones.",
     "<b>/especialidades</b> — Lista las especialidades configuradas.",
     "<b>/resumen convocatoria_id</b> — Cuenta de disponibles / no disponibles / posiblemente.",
+    "<b>/vincular_drive codigo</b> — Cambia el token de Google Drive (ver README).",
   ]).join("\n");
 }
 
@@ -866,6 +860,25 @@ async function manejarUpdate(update: TelegramUpdate) {
         const convocatoriaId = texto.replace("/resumen", "").trim();
         if (!convocatoriaId) await sendMessage(chatId, "Uso: /resumen <convocatoria_id>");
         else await manejarResumen(chatId, convocatoriaId);
+      }
+    } else if (texto.startsWith("/vincular_drive")) {
+      if (!isAdmin(chatId)) {
+        await sendMessage(chatId, "🔒 Este comando es solo para administradores.");
+      } else {
+        const codigo = texto.replace("/vincular_drive", "").trim();
+        if (!codigo) {
+          await sendMessage(chatId, "Uso: /vincular_drive <codigo> (ver README para conseguirlo)");
+        } else {
+          const resultado = await intercambiarCodigoOAuth(codigo);
+          await sendMessage(
+            chatId,
+            resultado.ok
+              ? "✅ Copia y guarda esto como el secreto <b>GOOGLE_OAUTH_REFRESH_TOKEN</b>:\n\n<code>" +
+                  escapeHtml(resultado.mensaje) +
+                  "</code>"
+              : "⚠️ " + escapeHtml(resultado.mensaje),
+          );
+        }
       }
     } else if (sesion && PASOS_CONVOCAR.includes(sesion.paso) && sesion.paso !== "convocar_confirmar" && texto && !texto.startsWith("/")) {
       await manejarPasoConvocar(chatId, sesion, texto);
