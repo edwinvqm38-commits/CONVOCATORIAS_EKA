@@ -462,7 +462,47 @@ function helpTexto(admin: boolean): string {
     "<b>/especialidades</b> — Lista las especialidades configuradas.",
     "<b>/resumen convocatoria_id</b> — Cuenta de disponibles / no disponibles / posiblemente, con WhatsApp clickeable de cada contacto.",
     "<b>/vincular_drive codigo</b> — Cambia el token de Google Drive (ver README).",
+    "<b>/actualizar_menu</b> — Refresca el menú \"/\" de Telegram con estos comandos.",
   ]).join("\n");
+}
+
+// --- Menu nativo de comandos de Telegram (boton "/") ------------------
+
+const COMANDOS_PUBLICOS = [
+  { command: "start", description: "Registrarte para recibir convocatorias" },
+  { command: "ayuda", description: "Ver los comandos disponibles" },
+];
+
+const COMANDOS_ADMIN = [
+  ...COMANDOS_PUBLICOS,
+  { command: "convocar", description: "Crear y enviar una convocatoria" },
+  { command: "especialidad_agregar", description: "Agregar una especialidad a la lista" },
+  { command: "especialidades", description: "Listar las especialidades configuradas" },
+  { command: "resumen", description: "Ver respuestas de una convocatoria (con WhatsApp)" },
+  { command: "vincular_drive", description: "Vincular/renovar el acceso a Google Drive" },
+  { command: "cancelar", description: "Cancelar lo que estés armando" },
+  { command: "actualizar_menu", description: "Refrescar este menú de comandos" },
+];
+
+/** Registra el menu "/" de Telegram: la lista basica para cualquier chat, y
+ * la lista completa (con los comandos de administrador) solo para los
+ * chats de ADMIN_CHAT_IDS, via BotCommandScopeChat. Hay que llamarla a mano
+ * (con /actualizar_menu) despues de desplegar o de cambiar la lista de
+ * comandos -- Telegram no la refresca sola. */
+async function actualizarMenuComandos(): Promise<void> {
+  await telegram("setMyCommands", { commands: COMANDOS_PUBLICOS, scope: { type: "default" } });
+
+  const admins = ADMIN_CHAT_IDS.split(",").map((id) => id.trim()).filter(Boolean);
+  for (const adminId of admins) {
+    try {
+      await telegram("setMyCommands", {
+        commands: COMANDOS_ADMIN,
+        scope: { type: "chat", chat_id: adminId },
+      });
+    } catch (error) {
+      console.error("SET_MY_COMMANDS_ERROR:", adminId, error);
+    }
+  }
 }
 
 function validarFecha(v: string) { return /^\d{4}-\d{2}-\d{2}$/.test(v.trim()); }
@@ -887,6 +927,13 @@ async function manejarUpdate(update: TelegramUpdate) {
         const convocatoriaId = texto.replace("/resumen", "").trim();
         if (!convocatoriaId) await sendMessage(chatId, "Uso: /resumen <convocatoria_id>");
         else await manejarResumen(chatId, convocatoriaId);
+      }
+    } else if (texto === "/actualizar_menu") {
+      if (!isAdmin(chatId)) {
+        await sendMessage(chatId, "🔒 Este comando es solo para administradores.");
+      } else {
+        await actualizarMenuComandos();
+        await sendMessage(chatId, "✅ Menú \"/\" actualizado (para todos los administradores).");
       }
     } else if (texto.startsWith("/vincular_drive")) {
       if (!isAdmin(chatId)) {

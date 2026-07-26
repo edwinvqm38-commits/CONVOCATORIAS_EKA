@@ -54,6 +54,12 @@ Solo administradores (`ADMIN_CHAT_IDS`):
   a medio llenar).
 - **`/vincular_drive <codigo>`** — intercambia un código de autorización de
   Google por un `refresh_token` para subir CVs a Drive (ver más abajo).
+- **`/actualizar_menu`** — registra/refresca el menú nativo "/" de Telegram
+  (el botón junto al campo de texto) con la lista de comandos de arriba:
+  básica para cualquier chat, completa solo para los chats en
+  `ADMIN_CHAT_IDS`. Telegram no lo actualiza solo; hay que correr este
+  comando una vez después de desplegar y cada vez que cambie la lista de
+  comandos.
 
 ## Flujo del usuario convocado
 
