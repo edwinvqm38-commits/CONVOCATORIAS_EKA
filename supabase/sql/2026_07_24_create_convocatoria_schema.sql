@@ -2,10 +2,10 @@
 -- proyecto OFICINA_IA. Todas las tablas llevan el prefijo "convocatoria_"
 -- para no chocar con el resto del sistema de oficina que ya vive ahi.
 --
--- IMPORTANTE (seguridad): estas tablas se crean SIN RLS. Mientras el bot use
--- unicamente la service_role key (nunca expuesta al cliente), no hay riesgo,
--- pero si en algun momento se usa la anon key desde algo publico, hay que
--- activar RLS con politicas antes. Ver README para el SQL de activacion.
+-- Seguridad: RLS esta activado (sin politicas) en las 5 tablas. El bot usa
+-- unicamente la service_role key (nunca expuesta al cliente), que ignora
+-- RLS, asi que sigue funcionando igual. Si en algun momento se necesita
+-- acceso desde la anon key, hay que agregar politicas explicitas primero.
 
 create table if not exists convocatoria_usuarios (
     id uuid primary key default gen_random_uuid(),
@@ -69,6 +69,14 @@ create table if not exists convocatoria_sesiones (
 );
 
 create index if not exists idx_convocatoria_respuestas_convocatoria on convocatoria_respuestas(convocatoria_id);
+
+-- RLS activado sin politicas: bloquea anon/authenticated, el bot sigue
+-- funcionando porque usa la service_role key (que ignora RLS).
+alter table convocatoria_usuarios enable row level security;
+alter table convocatoria_especialidades enable row level security;
+alter table convocatorias enable row level security;
+alter table convocatoria_respuestas enable row level security;
+alter table convocatoria_sesiones enable row level security;
 
 -- Vista de exportacion: pensada para traerla a Google Sheets (via REST /
 -- PostgREST) con los hipervinculos de Drive ya incluidos, sin tener que

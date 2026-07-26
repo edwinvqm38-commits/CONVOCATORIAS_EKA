@@ -189,3 +189,16 @@ Variables necesarias solo para esta vía (ver `.env.example`):
 
 No subir el archivo `.env` ni ninguna llave de cuenta de servicio al
 repositorio.
+
+### RLS en las tablas `convocatoria_*`
+
+Row Level Security (RLS) está **activado** en las 5 tablas del esquema
+(`convocatoria_usuarios`, `convocatoria_especialidades`, `convocatorias`,
+`convocatoria_respuestas`, `convocatoria_sesiones`), sin políticas
+adicionales. Esto bloquea cualquier acceso desde la `anon key` o usuarios
+`authenticated`; el bot sigue funcionando con normalidad porque la Edge
+Function usa `SUPABASE_SERVICE_ROLE_KEY`, que siempre ignora RLS.
+
+Si en el futuro alguna parte del sistema necesita leer estas tablas con la
+`anon key` (por ejemplo, un panel web público), habrá que agregar políticas
+explícitas con `CREATE POLICY` antes de exponerlas de esa forma.
