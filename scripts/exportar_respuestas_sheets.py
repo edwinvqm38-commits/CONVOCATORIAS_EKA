@@ -105,9 +105,9 @@ def obtener_respuestas(convocatoria_id: str | None) -> list[dict]:
 
 
 def link_whatsapp(numero: str | None) -> str:
-    """Replica la logica de appsscript/Formato.gs: numeros de 9 digitos se
-    asumen celulares peruanos (se les antepone 51); si ya traen mas digitos
-    se asume que el codigo de pais ya viene incluido."""
+    """Numeros de 9 digitos se asumen celulares peruanos (se les antepone
+    51); si ya traen mas digitos se asume que el codigo de pais ya viene
+    incluido. Misma regla que usa linkWhatsApp() en la Edge Function."""
     if not numero:
         return ""
     solo_digitos = "".join(c for c in numero if c.isdigit())

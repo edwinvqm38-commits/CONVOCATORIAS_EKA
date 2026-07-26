@@ -2,198 +2,131 @@
 
 Sistema para convocar usuarios por Telegram a **paradas de planta** (u otros
 eventos de servicio), pedirles que confirmen su disponibilidad y datos con
-botones/preguntas, y llevar todo el registro en **Google Sheets** — con los
-CVs adjuntados guardados en **Google Drive**. No usa ningún servicio externo
-(ni Vercel, ni Supabase, ni servidores propios): todo corre dentro de tu
-cuenta de Google, con **Google Apps Script**.
+botones/preguntas, y llevar todo el registro en **Supabase (Postgres)** —
+con los CVs adjuntados guardados en **Google Drive**.
 
 ## Arquitectura
 
-- **Bot (Telegram ↔ Sheets/Drive)**: un proyecto de **Google Apps Script**
-  (carpeta `appsscript/`). Revisa mensajes nuevos de Telegram cada minuto
-  (`revisarTelegram`, colgada de un disparador de tiempo) — los Web Apps de
-  Apps Script no sirven como webhook de Telegram (siempre redirigen con 302,
-  y Telegram no sigue redirecciones), así que en vez de esperar a que
-  Telegram le avise, es Apps Script el que pregunta. Google lo aloja gratis,
-  sin que tengas que desplegar nada en otro lado. Lee y escribe directamente
-  en Sheets y Drive usando tu propia cuenta de Google (sin credenciales
-  aparte).
-- **Almacenamiento**: dos Google Sheets (pueden ser el mismo, o distintos):
-  - **Hoja de Control** (fija, configurada una vez): usuarios registrados,
-    especialidades configurables, y el estado de la conversación de cada
-    chat (necesario porque un Web App no "recuerda" nada entre un mensaje y
-    el siguiente).
-  - **Hoja activa / de destino** (cambiable en cualquier momento con
-    `/hoja`): pestañas `Convocatorias` y `Respuestas`, donde cae toda la data
-    de seguimiento. Arma tus propias hojas/pivotes de análisis encima de
-    `Respuestas` sin que el bot las toque.
-- **CVs**: se guardan como archivos en una carpeta de **Google Drive**
-  (`Convocatorias EKA - CVs` por defecto, o la que indiques), y el link a
-  cada archivo queda en la columna `cv_drive_url` de `Respuestas`.
-- **Scripts en Python** (`scripts/`, `main.py`): **opcionales**, para crear o
-  reenviar convocatorias desde la terminal o por cron (GitHub Actions), sin
-  pasar por el chat. Usan una cuenta de servicio de Google aparte — no son
-  necesarios si administras todo desde el propio bot (con `/convocar`,
-  `/hoja`, etc.) y usas el trigger de recordatorios de Apps Script.
+- **Bot (Telegram ↔ Supabase/Drive)**: una **Edge Function de Supabase**
+  (Deno), en `supabase/functions/convocatorias-bot/index.ts`. Recibe los
+  mensajes de Telegram por **webhook** (Telegram le hace POST directo a la
+  URL de la función en cuanto hay un mensaje o botón nuevo — no hay
+  polling ni cron de por medio).
+- **Almacenamiento**: Postgres del proyecto Supabase (`OFICINA_IA`), en
+  tablas con prefijo `convocatoria_` (ver
+  `supabase/sql/2026_07_24_create_convocatoria_schema.sql`):
+  `convocatoria_usuarios`, `convocatoria_especialidades`, `convocatorias`,
+  `convocatoria_respuestas`, `convocatoria_sesiones` (estado del flujo
+  conversacional de cada chat). Row Level Security está activado en las 5
+  (ver sección Seguridad).
+- **CVs**: se suben a una carpeta de **Google Drive**, autenticando como un
+  usuario real vía OAuth con `refresh_token` (no una cuenta de servicio —
+  estas no tienen cuota propia de almacenamiento en Drive salvo con Shared
+  Drives de Google Workspace). El link de cada archivo queda en
+  `cv_drive_url`.
+- **Transcripción de audio** (opcional): si la experiencia se manda como
+  nota de voz, se transcribe con Gemini (`GEMINI_API_KEY`); si no está
+  configurada, simplemente se guarda el audio sin transcribir.
+- **Exportar a Sheets** (opcional): `scripts/exportar_respuestas_sheets.py`
+  trae la vista `convocatoria_respuestas_export_v` a una pestaña de Google
+  Sheets, con WhatsApp y CV como links clickeables — ver más abajo.
 
-## Flujo para el administrador
+## Comandos del bot
 
-1. **`/hoja <link o ID>`** — (una vez, o cuando quiera cambiar de hoja)
-   define en qué Google Sheet caen las convocatorias y respuestas de ahí en
-   adelante. La hoja debe estar compartida como editor con la cuenta de
-   Google que publicó el proyecto de Apps Script.
-2. **`/convocar`** — el bot pregunta, uno por uno: planta, título, fecha del
-   servicio, hora, descripción y fecha límite de respuesta (los campos
-   opcionales se saltan con `-`). Al final muestra un resumen con 3 botones:
-   enviar ahora, guardar como borrador, o cancelar.
-3. **`/especialidad_agregar <nombre>`** — agrega una especialidad nueva a la
-   lista de botones que ven los usuarios. Ya vienen precargadas: Tec.
-   Electricista, Tec. Instrumentista, Tec. Mecánico, Tec. Soldador,
-   Almacenero, Chofer, Sup. Electricista, Sup. Seguridad.
-4. **`/resumen <convocatoria_id>`** — cuenta rápida de disponibles / no
-   disponibles / posiblemente para esa convocatoria.
-5. **`/script`** — te manda por Telegram el código actual del bot (todos los
-   archivos `.gs`), leyéndolo directo del proyecto en ese momento. Úsalo
-   cuando necesites armar el bot en un Google Sheet/cuenta nueva y no
-   recuerdes qué pegar: siempre te manda la versión real que está corriendo,
-   no una copia vieja.
+Para todos:
+- **`/start`** — registra al chat para recibir convocatorias. Si se abre
+  con un link `?start=conv_<id>`, además muestra esa convocatoria puntual.
+- **`/ayuda`** — lista de comandos.
 
-## Flujo para el usuario convocado
+Solo administradores (`ADMIN_CHAT_IDS`):
+- **`/convocar`** — arma una convocatoria paso a paso (planta, título,
+  fecha, hora, descripción, fecha límite) y al final ofrece enviarla a
+  todos los usuarios registrados, guardarla como borrador o cancelarla.
+- **`/especialidad_agregar <nombre>`** — agrega una especialidad a la lista
+  de botones que ven los usuarios al responder. Ya vienen precargadas:
+  Tec. Electricista, Tec. Instrumentista, Tec. Mecánico, Tec. Soldador,
+  Almacenero, Chofer, Sup. Electricista, Sup. Seguridad.
+- **`/especialidades`** — lista las especialidades configuradas.
+- **`/resumen <convocatoria_id>`** — cuenta de disponibles / no
+  disponibles / posiblemente, más el detalle de contactos (disponible y
+  posiblemente) con su especialidad y un link clickeable de WhatsApp.
+- **`/cancelar`** — cancela el flujo en curso (`/convocar` o una respuesta
+  a medio llenar).
+- **`/vincular_drive <codigo>`** — intercambia un código de autorización de
+  Google por un `refresh_token` para subir CVs a Drive (ver más abajo).
+
+## Flujo del usuario convocado
 
 1. Recibe el mensaje de la convocatoria con 3 botones: **✅ Disponible**,
    **❌ No disponible**, **🤔 Posiblemente**.
-2. Al presionar cualquiera, el bot confirma su respuesta y le pide, en este
-   orden: **nombres completos**, **DNI**, **teléfono**, **lugar de
-   residencia**, su **especialidad** (con botones), una **experiencia
-   breve** (texto o nota de voz), y por último **adjuntar su CV** (PDF o
-   Word) directo en el chat.
-3. En cuanto sube el CV, el bot lo guarda en Drive **con el archivo renombrado
-   a "Nombres completos - DNI"** (en vez del nombre original que haya puesto
-   la persona, que a veces viene raro o vacío) y confirma automáticamente —
-   no hace falta ningún botón de "enviado".
-4. Todo queda guardado como una fila en la pestaña `Respuestas` de la hoja
-   activa, con las columnas en el mismo orden en que se preguntó (nombre,
-   DNI, teléfono, lugar, especialidad, experiencia, CV), y la disponibilidad
-   más la fecha de respuesta al final de la fila. El **teléfono** queda como
-   un link para escribir por WhatsApp con un tap/click, y el **CV** como un
-   link "📎 Ver CV" directo al archivo en Drive.
+2. Al presionar cualquiera, el bot pide, en orden: **nombres completos**,
+   **DNI**, **teléfono**, **lugar de residencia**, **especialidad** (con
+   botones), una **experiencia breve** (texto o nota de voz), y por último
+   el **CV** (PDF o Word, adjunto directo en el chat).
+3. El CV se sube a Drive **renombrado a "Nombres completos - DNI"** y la
+   respuesta queda completa automáticamente, sin botón de "enviado".
 
-## Formato de la hoja `Respuestas`
+**Nota sobre Telegram**: un bot solo puede escribirle a alguien que ya le
+escribió primero (o le dio `/start`) — regla de la plataforma para evitar
+spam. Por eso cada persona debe abrir el link del bot y presionar Start (o
+el link `?start=conv_<id>` de una convocatoria puntual) una sola vez.
 
-Cada vez que usas `/hoja` (o agregas una especialidad con
-`/especialidad_agregar`), el bot le aplica formato a la pestaña activa:
+## Desplegar / configurar
 
-- Encabezado en negrita y fila congelada.
-- Columna **Especialidad**: lista desplegable (para si alguien edita a mano)
-  y un color de fondo distinto por especialidad.
-- Columna **Respuesta** (disponibilidad): verde/rojo/amarillo según
-  disponible / no disponible / posiblemente.
-- Columna **Teléfono**: link clickeable a WhatsApp (`wa.me`). Los links
-  `tel:` no son confiables dentro de Google Sheets, por eso se usa WhatsApp
-  como vía principal para llamar o escribir. Asume números peruanos de 9
-  dígitos si no traen código de país.
-- Columna **CV**: link clickeable directo al archivo en Drive.
+1. **Crear el esquema en Supabase**: correr
+   `supabase/sql/2026_07_24_create_convocatoria_schema.sql` sobre el
+   proyecto (SQL editor de Supabase, o `supabase db push`).
+2. **Desplegar la función**: desde `supabase/functions/convocatorias-bot/`,
+   `supabase functions deploy convocatorias-bot --project-ref <ref> --no-verify-jwt`
+   (necesita `--no-verify-jwt` porque Telegram llama al webhook sin un JWT
+   de Supabase).
+3. **Configurar los secretos de la función** (Project Settings → Edge
+   Functions → Secrets, o `supabase secrets set`):
+   - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (del propio proyecto).
+   - `TELEGRAM_BOT_TOKEN` (de [@BotFather](https://t.me/BotFather)).
+   - `ADMIN_CHAT_IDS` (chat IDs separados por coma; para saber el tuyo,
+     escríbele al bot y revisa los logs, o usa algún bot tipo
+     `@userinfobot`).
+   - `GOOGLE_DRIVE_CV_FOLDER_ID` (opcional; si se omite, sube los CVs a la
+     raíz de "Mi unidad" de la cuenta vinculada).
+   - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` (ver abajo).
+   - `GOOGLE_OAUTH_REFRESH_TOKEN` (se obtiene con `/vincular_drive`, ver
+     abajo — al principio puede dejarse vacío y completarse después).
+   - `GEMINI_API_KEY` (opcional, para transcribir notas de voz).
+4. **Registrar el webhook de Telegram**, apuntando a la URL pública de la
+   función (`https://<project-ref>.supabase.co/functions/v1/convocatorias-bot`):
+   ```
+   https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook?url=https://<project-ref>.supabase.co/functions/v1/convocatorias-bot
+   ```
 
-**Importante sobre Telegram**: un bot solo puede escribirle a alguien que ya
-le escribió primero (o le dio `/start`) — es una regla de la plataforma, no
-de este sistema, para evitar spam. Por eso cada persona abre el link del bot
-y presiona Start (o escribe `/start`) **una sola vez**; después de eso, las
-convocatorias les llegan solas.
+### Vincular Google Drive (OAuth)
 
-**Límite de este diseño**: las respuestas de una convocatoria se guardan en
-la hoja que esté activa *en el momento en que el usuario responde* (no la que
-estaba activa cuando se creó). Evita cambiar de hoja con `/hoja` mientras una
-convocatoria siga esperando respuestas; cámbiala después de cerrarla.
+Los CVs se suben con la cuenta personal de Google del administrador (no una
+cuenta de servicio), así que hace falta un `refresh_token` una sola vez:
 
-**Privacidad de los CVs**: los archivos quedan en una carpeta de Drive de tu
-propia cuenta, con los permisos normales de Drive (nadie externo puede verlos
-salvo que tú compartas esa carpeta). El bot no cambia esos permisos por su
-cuenta.
-
-## Configurar el bot en Google Apps Script (sin hosting externo)
-
-1. Ve a [script.google.com](https://script.google.com) → **Nuevo proyecto**.
-2. Copia el contenido de cada archivo de la carpeta `appsscript/` de este
-   repo (`Schema.gs`, `Sheets.gs`, `Store.gs`, `Telegram.gs`, `Drive.gs`,
-   `Formato.gs`, `Recordatorios.gs`, `Comandos.gs`, `Polling.gs`, `Code.gs`)
-   como un archivo `.gs` con el mismo nombre en tu proyecto — o pega todo
-   junto en un solo archivo, da igual, Apps Script no distingue. (Si
-   prefieres usar [clasp](https://github.com/google/clasp), puedes subir la
-   carpeta completa con `clasp push`.)
-3. En **Configuración del proyecto → Propiedades de secuencia de comandos**
-   (Project Settings → Script properties), agrega:
-   - `TELEGRAM_BOT_TOKEN`
-   - `ADMIN_CHAT_IDS` (chat IDs separados por coma)
-   - `CONTROL_SHEET_ID` (ID de un Google Sheet que crees vacío, para
-     Config/Especialidades/Sesiones/Usuarios)
-   - `GOOGLE_DRIVE_CV_FOLDER_ID` (opcional; si lo dejas vacío, el bot crea
-     una carpeta llamada "Convocatorias EKA - CVs" automáticamente)
-4. Comparte el Google Sheet de `CONTROL_SHEET_ID` (y cualquier hoja que
-   vayas a usar como destino con `/hoja`) como **Editor** con la cuenta de
-   Google que va a publicar el proyecto.
-5. **No uses un webhook de Telegram.** Los Web Apps de Apps Script siempre
-   responden con una redirección (302) en la URL `/exec` — así funciona el
-   servicio para todas las ejecuciones — y Telegram no sigue redirecciones al
-   entregar un webhook, así que nunca llega nada (`Wrong response from the
-   webhook: 302 Found`). En vez de eso, el bot usa **polling**: Apps Script
-   pregunta a Telegram cada minuto si hay mensajes nuevos.
-   - Primero borra cualquier webhook que hayas registrado antes:
-     ```
-     https://api.telegram.org/bot<TOKEN>/deleteWebhook
-     ```
-   - En el editor, elige `revisarTelegram` en el desplegable de funciones y
-     ejecútala una vez para probar.
-   - Luego **Disparadores (Triggers) → Añadir disparador**: función
-     `revisarTelegram`, tipo "Basado en tiempo" → "Temporizador de minutos" →
-     **cada minuto**. Con esto las respuestas del bot llegan casi al
-     instante (máximo ~1 minuto de rezago).
-6. (Ya no hace falta implementar como Aplicación web para que el bot
-   funcione — `doPost`/`doGet` quedan sin uso. Puedes igual dejarlos
-   desplegados por si más adelante quieres exponer un endpoint propio.)
-7. (Opcional) Para los recordatorios automáticos: agrega otro disparador
-   igual al anterior, pero para la función `enviarRecordatoriosDiarios`, con
-   la frecuencia que prefieras (ej. una vez al día).
-
-La primera vez que uses `/script`, Google puede pedirte volver a autorizar el
-proyecto (aparece al ejecutar cualquier función manualmente en el editor, o
-lo notarás porque `/script` fallará con un error de permisos) — es porque ese
-comando necesita permiso para leer el propio código del proyecto
-(`script.projects.readonly`, ya declarado en `appsscript.json`). Solo hace
-falta aceptar una vez.
-
-Con esto el bot queda funcionando 100% dentro de tu cuenta de Google — no
-hay que desplegar nada en Vercel, Supabase, ni ningún otro servicio.
-
-## Scripts en Python (opcional, avanzado)
-
-Si prefieres crear/enviar convocatorias desde la terminal o por cron de
-GitHub Actions en vez de usar `/convocar` en el chat, están los scripts en
-`scripts/` y `main.py`. Usan la misma hoja activa, pero se autentican con una
-cuenta de servicio de Google aparte (no la misma sesión de Apps Script):
-
-```
-python -m pip install -r requirements.txt
-
-python scripts/crear_convocatoria.py --planta "Planta Callao" --fecha 2026-08-15 \
-  --descripcion "Parada de planta programada - mantenimiento anual"
-python scripts/enviar_convocatoria.py --id <convocatoria_id>
-python scripts/reporte_convocatoria.py --id <convocatoria_id>
-python scripts/enviar_recordatorios.py --id <convocatoria_id>
-```
-
-Variables necesarias solo para esta vía (ver `.env.example`):
-`GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEETS_CONTROL_ID`,
-`TELEGRAM_BOT_TOKEN`. No son necesarias si solo usas el bot vía Apps Script.
+1. En [Google Cloud Console](https://console.cloud.google.com/) crea unas
+   credenciales OAuth de tipo **Aplicación de escritorio** — de ahí salen
+   `GOOGLE_OAUTH_CLIENT_ID` y `GOOGLE_OAUTH_CLIENT_SECRET`.
+2. Arma esta URL reemplazando `TU_CLIENT_ID`, ábrela en el navegador,
+   inicia sesión con la cuenta que va a "dueña" de los CVs, y acepta:
+   ```
+   https://accounts.google.com/o/oauth2/v2/auth?client_id=TU_CLIENT_ID&redirect_uri=http://localhost&response_type=code&access_type=offline&prompt=consent&scope=https://www.googleapis.com/auth/drive.file
+   ```
+3. Al aceptar, el navegador intentará abrir `http://localhost/?code=...` (va
+   a fallar porque no hay nada corriendo ahí — está bien). Copia el valor de
+   `code` de la URL.
+4. En Telegram, como administrador, envía `/vincular_drive <ese codigo>`. El
+   bot responde con el `refresh_token`: guárdalo como el secreto
+   `GOOGLE_OAUTH_REFRESH_TOKEN` en Supabase.
 
 ## Exportar respuestas a Google Sheets
 
-El bot vivo (Telegram ↔ Supabase, ver `supabase/functions/convocatorias-bot/`)
-guarda todo en Postgres. La vista `convocatoria_respuestas_export_v` (en
-`supabase/sql/2026_07_24_create_convocatoria_schema.sql`) ya arma esos datos
-listos para reportes; `scripts/exportar_respuestas_sheets.py` la trae a una
-pestaña de Google Sheets, con el **teléfono** como link de WhatsApp
-(`wa.me`) y el **CV** como link a Drive, ambos clickeables — igual que hacía
-el bot viejo de Apps Script directamente en la hoja.
+La vista `convocatoria_respuestas_export_v` (en
+`supabase/sql/2026_07_24_create_convocatoria_schema.sql`) arma los datos de
+`convocatoria_respuestas` listos para reportes;
+`scripts/exportar_respuestas_sheets.py` la trae a una pestaña de Google
+Sheets, con el **teléfono** como link de WhatsApp (`wa.me`) y el **CV**
+como link a Drive, ambos clickeables.
 
 Cada corrida reemplaza el contenido completo de la pestaña con una foto
 actual de las respuestas (no acumula duplicados).

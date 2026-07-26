@@ -1,5 +1,4 @@
 requests
 python-dotenv
-python-dateutil
 google-api-python-client
 google-auth
