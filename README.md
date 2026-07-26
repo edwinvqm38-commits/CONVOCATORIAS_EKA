@@ -185,6 +185,34 @@ Variables necesarias solo para esta vía (ver `.env.example`):
 `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEETS_CONTROL_ID`,
 `TELEGRAM_BOT_TOKEN`. No son necesarias si solo usas el bot vía Apps Script.
 
+## Exportar respuestas a Google Sheets
+
+El bot vivo (Telegram ↔ Supabase, ver `supabase/functions/convocatorias-bot/`)
+guarda todo en Postgres. La vista `convocatoria_respuestas_export_v` (en
+`supabase/sql/2026_07_24_create_convocatoria_schema.sql`) ya arma esos datos
+listos para reportes; `scripts/exportar_respuestas_sheets.py` la trae a una
+pestaña de Google Sheets, con el **teléfono** como link de WhatsApp
+(`wa.me`) y el **CV** como link a Drive, ambos clickeables — igual que hacía
+el bot viejo de Apps Script directamente en la hoja.
+
+Cada corrida reemplaza el contenido completo de la pestaña con una foto
+actual de las respuestas (no acumula duplicados).
+
+```
+python -m pip install -r requirements.txt
+python scripts/exportar_respuestas_sheets.py
+python scripts/exportar_respuestas_sheets.py --convocatoria-id <id>   # solo una convocatoria
+```
+
+Variables necesarias (ver `.env.example`): `SUPABASE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_SERVICE_ACCOUNT_JSON`,
+`GOOGLE_SHEETS_EXPORT_ID`. Comparte el Google Sheet destino como **Editor**
+con el `client_email` de la cuenta de servicio.
+
+También se puede disparar manualmente desde GitHub Actions (workflow
+**"Convocatorias - Exportar respuestas a Sheets"**), con esos mismos valores
+guardados como *repository secrets*.
+
 ## Seguridad
 
 No subir el archivo `.env` ni ninguna llave de cuenta de servicio al
