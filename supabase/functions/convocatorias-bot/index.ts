@@ -717,6 +717,9 @@ function pasoConfirmacion(paso: string): string {
   return `confirmar_${paso}`;
 }
 
+const CAMPOS_PERFIL =
+  "nombres_completos, dni, telefono, lugar_residencia, especialidad, experiencia_texto, experiencia_audio_file_id, cv_drive_url";
+
 /** Busca el perfil mas reciente que este mismo chat ya completo en OTRA
  * convocatoria, para no volver a pedirle los mismos datos desde cero. Se
  * evalua campo por campo (no todo o nada): si solo tiene telefono pero no
@@ -724,15 +727,54 @@ function pasoConfirmacion(paso: string): string {
 async function obtenerUltimoPerfil(chatId: string, convocatoriaIdActual: string) {
   const { data } = await supabase
     .from("convocatoria_respuestas")
-    .select(
-      "nombres_completos, dni, telefono, lugar_residencia, especialidad, experiencia_texto, experiencia_audio_file_id, cv_drive_url",
-    )
+    .select(CAMPOS_PERFIL)
     .eq("telegram_chat_id", chatId)
     .neq("convocatoria_id", convocatoriaIdActual)
     .order("respondido_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   return data;
+}
+
+/** Busca por DNI (no por chat de Telegram): cubre el caso de alguien que
+ * responde desde otro numero/cuenta de Telegram, para no pedirle todo de
+ * nuevo solo porque cambio de celular. */
+async function buscarPerfilPorDni(dni: string, convocatoriaIdActual: string) {
+  const { data } = await supabase
+    .from("convocatoria_respuestas")
+    .select(CAMPOS_PERFIL)
+    .eq("dni", dni)
+    .neq("convocatoria_id", convocatoriaIdActual)
+    .order("respondido_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data;
+}
+
+/** Combina dos perfiles priorizando los valores no vacios de "prioritario"
+ * (el que ya veniamos usando) y rellenando los huecos con "respaldo" (el
+ * encontrado por DNI). */
+function fusionarPerfiles(
+  prioritario: Record<string, unknown> | null,
+  respaldo: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  if (!prioritario) return respaldo;
+  if (!respaldo) return prioritario;
+  const combinado: Record<string, unknown> = { ...respaldo };
+  for (const key of Object.keys(prioritario)) {
+    const valor = prioritario[key];
+    if (valor !== null && valor !== undefined && valor !== "") combinado[key] = valor;
+  }
+  return combinado;
+}
+
+function dniValido(texto: string): boolean {
+  return /^\d{8}$/.test(texto.trim());
+}
+
+function telefonoValido(texto: string): boolean {
+  const digitos = texto.replace(/\D/g, "");
+  return digitos.length === 9 || (digitos.length === 11 && digitos.startsWith("51"));
 }
 
 function valorPrevioDeCampo(previo: Record<string, unknown> | null, campo: string): unknown {
@@ -798,10 +840,101 @@ async function iniciarPaso(chatId: string, sesion: Sesion, paso: string) {
 async function avanzarAlSiguientePaso(chatId: string, sesion: Sesion, pasoActual: string) {
   const siguientePaso = ORDEN_RESPUESTA[ORDEN_RESPUESTA.indexOf(pasoActual) + 1];
   if (!siguientePaso) {
-    await deleteSession(chatId);
-    return await sendMessage(chatId, "✅ ¡Gracias! Tu registro quedó completo.");
+    return await mostrarResumenFinal(chatId, sesion);
   }
   return await iniciarPaso(chatId, sesion, siguientePaso);
+}
+
+/** Igual que avanzarAlSiguientePaso, pero si el paso que se acaba de guardar
+ * vino de "editar un dato puntual" desde el resumen final (sesion.datos.modo
+ * === "resumen"), en vez de seguir la marcha normal vuelve a mostrar el
+ * resumen -- asi editar un campo no reinicia todo el flujo. */
+async function avanzarOResumen(chatId: string, sesion: Sesion, pasoActual: string) {
+  if (sesion.datos.modo === "resumen") {
+    sesion.datos.modo = null;
+    return await mostrarResumenFinal(chatId, sesion);
+  }
+  return await avanzarAlSiguientePaso(chatId, sesion, pasoActual);
+}
+
+const ETIQUETAS_RESUMEN: [string, string][] = [
+  ["nombres_completos", "🪪 Nombres"],
+  ["dni", "🆔 DNI"],
+  ["telefono", "📞 Teléfono"],
+  ["lugar_residencia", "📍 Lugar"],
+  ["especialidad", "🛠️ Especialidad"],
+  ["experiencia_texto", "🛠️ Experiencia"],
+  ["cv_drive_url", "📎 CV"],
+];
+
+function botonesResumenFinal() {
+  const filas = [];
+  for (let i = 0; i < ETIQUETAS_RESUMEN.length; i += 2) {
+    filas.push(
+      ETIQUETAS_RESUMEN.slice(i, i + 2).map(([campo, texto]) => ({
+        text: `✏️ ${texto}`,
+        callback_data: `resumeneditar:${campo}`,
+      })),
+    );
+  }
+  filas.push([{ text: "🚀 Confirmar y enviar", callback_data: "resumenenviar" }]);
+  return { inline_keyboard: filas };
+}
+
+/** Muestra todos los datos ya guardados con un boton de editar por cada
+ * uno, y un boton final para confirmar. Se llama al terminar la marcha
+ * normal (fin de resp_cv) y tambien cada vez que se vuelve de editar un
+ * campo puntual desde aqui mismo. */
+async function mostrarResumenFinal(chatId: string, sesion: Sesion) {
+  const convocatoriaId = sesion.datos.convocatoria_id;
+  const { data: respuesta } = await supabase
+    .from("convocatoria_respuestas")
+    .select(CAMPOS_PERFIL)
+    .eq("convocatoria_id", convocatoriaId)
+    .eq("telegram_chat_id", chatId)
+    .maybeSingle();
+
+  const r = (respuesta ?? {}) as Record<string, unknown>;
+  const experiencia = (r.experiencia_texto as string) || (r.experiencia_audio_file_id ? "(nota de voz guardada)" : "-");
+
+  const lines = [
+    "📋 <b>Revisa tus datos antes de enviar</b>",
+    "",
+    `🪪 Nombres: ${escapeHtml(r.nombres_completos ?? "-")}`,
+    `🆔 DNI: ${escapeHtml(r.dni ?? "-")}`,
+    `📞 Teléfono: ${escapeHtml(r.telefono ?? "-")}`,
+    `📍 Lugar de residencia: ${escapeHtml(r.lugar_residencia ?? "-")}`,
+    `🛠️ Especialidad: ${escapeHtml(r.especialidad ?? "-")}`,
+    `🛠️ Experiencia: ${escapeHtml(experiencia)}`,
+    `📎 CV: ${r.cv_drive_url ? "✅ adjuntado" : "-"}`,
+    "",
+    "Toca un dato para corregirlo, o confirma para enviar tu registro.",
+  ];
+
+  await saveSession(chatId, "resumen_final", sesion.datos);
+  return await sendMessage(chatId, lines.join("\n"), botonesResumenFinal());
+}
+
+async function manejarResumenEditarCallback(chatId: string, callbackId: string, campo: string) {
+  const sesion = await getSession(chatId);
+  if (!sesion || sesion.paso !== "resumen_final") return await answerCallback(callbackId, "Esto ya no está activo.");
+
+  const paso = Object.entries(CAMPO_POR_PASO).find(([, c]) => c === campo)?.[0];
+  if (!paso) return await answerCallback(callbackId, "Campo no reconocido.");
+
+  await answerCallback(callbackId, "Ok, indícalo de nuevo.");
+  sesion.datos.modo = "resumen";
+  await saveSession(chatId, paso, sesion.datos);
+  return await mostrarPreguntaPaso(chatId, paso);
+}
+
+async function manejarResumenEnviarCallback(chatId: string, callbackId: string) {
+  const sesion = await getSession(chatId);
+  if (!sesion || sesion.paso !== "resumen_final") return await answerCallback(callbackId, "Esto ya no está activo.");
+
+  await deleteSession(chatId);
+  await answerCallback(callbackId, "¡Enviado!");
+  return await sendMessage(chatId, "✅ ¡Gracias! Tu registro quedó completo.");
 }
 
 async function manejarConfirmarDatoCallback(chatId: string, callbackId: string, campo: string, accion: string) {
@@ -834,7 +967,7 @@ async function manejarConfirmarDatoCallback(chatId: string, callbackId: string, 
   await sincronizarRespuesta(convocatoriaId, chatId);
 
   await answerCallback(callbackId, "Confirmado.");
-  return await avanzarAlSiguientePaso(chatId, sesion, paso);
+  return await avanzarOResumen(chatId, sesion, paso);
 }
 
 async function manejarRespuestaCallback(
@@ -895,7 +1028,7 @@ async function manejarEspecialidadCallback(chatId: string, callbackId: string, n
   await sincronizarRespuesta(sesion.datos.convocatoria_id, chatId);
 
   await answerCallback(callbackId, `Especialidad: ${nombreEspecialidad}`);
-  return await avanzarAlSiguientePaso(chatId, sesion, "resp_especialidad");
+  return await avanzarOResumen(chatId, sesion, "resp_especialidad");
 }
 
 async function manejarPasoRespuesta(chatId: string, sesion: Sesion, message: NonNullable<TelegramUpdate["message"]>) {
@@ -931,7 +1064,7 @@ async function manejarPasoRespuesta(chatId: string, sesion: Sesion, message: Non
     );
     await sincronizarRespuesta(convocatoriaId, chatId);
 
-    return await avanzarAlSiguientePaso(chatId, sesion, "resp_experiencia");
+    return await avanzarOResumen(chatId, sesion, "resp_experiencia");
   }
 
   if (paso === "resp_cv") {
@@ -961,10 +1094,17 @@ async function manejarPasoRespuesta(chatId: string, sesion: Sesion, message: Non
       convocatoriaId,
     ).eq("telegram_chat_id", chatId);
     await sincronizarRespuesta(convocatoriaId, chatId);
-    return await avanzarAlSiguientePaso(chatId, sesion, "resp_cv");
+    return await avanzarOResumen(chatId, sesion, "resp_cv");
   }
 
   if (!texto) return await sendMessage(chatId, "Por favor responde con un mensaje de texto.");
+
+  if (paso === "resp_dni" && !dniValido(texto)) {
+    return await sendMessage(chatId, "El DNI debe tener 8 dígitos numéricos. Escríbelo de nuevo.");
+  }
+  if (paso === "resp_telefono" && !telefonoValido(texto)) {
+    return await sendMessage(chatId, "El teléfono debe tener 9 dígitos (número peruano). Escríbelo de nuevo.");
+  }
 
   const campo = paso.replace("resp_", "");
   await supabase.from("convocatoria_respuestas").update({ [campo]: texto }).eq("convocatoria_id", convocatoriaId).eq(
@@ -973,7 +1113,14 @@ async function manejarPasoRespuesta(chatId: string, sesion: Sesion, message: Non
   );
   await sincronizarRespuesta(convocatoriaId, chatId);
 
-  return await avanzarAlSiguientePaso(chatId, sesion, paso);
+  if (paso === "resp_dni") {
+    const porDni = await buscarPerfilPorDni(texto, convocatoriaId);
+    if (porDni) {
+      sesion.datos.previo = fusionarPerfiles((sesion.datos.previo ?? null) as Record<string, unknown> | null, porDni);
+    }
+  }
+
+  return await avanzarOResumen(chatId, sesion, paso);
 }
 
 async function manejarStart(chatId: string, payload: string) {
@@ -1019,6 +1166,7 @@ async function manejarUpdate(update: TelegramUpdate) {
     const matchConfirmar = data.match(/^confirmar_convocatoria:(.+)$/);
     const matchEspecialidad = data.match(/^esp:(.+)$/);
     const matchConfirmarDato = data.match(/^confdato:([^:]+):(.+)$/);
+    const matchResumenEditar = data.match(/^resumeneditar:(.+)$/);
 
     if (matchConfirmar) {
       if (!isAdmin(chatId)) await answerCallback(cq.id, "Solo administradores.");
@@ -1027,6 +1175,10 @@ async function manejarUpdate(update: TelegramUpdate) {
       await manejarEspecialidadCallback(chatId, cq.id, matchEspecialidad[1]);
     } else if (matchConfirmarDato) {
       await manejarConfirmarDatoCallback(chatId, cq.id, matchConfirmarDato[1], matchConfirmarDato[2]);
+    } else if (matchResumenEditar) {
+      await manejarResumenEditarCallback(chatId, cq.id, matchResumenEditar[1]);
+    } else if (data === "resumenenviar") {
+      await manejarResumenEnviarCallback(chatId, cq.id);
     } else if (matchRespuesta && cq.message) {
       await manejarRespuestaCallback(chatId, cq.message.message_id, cq.id, cq.from, matchRespuesta[1], matchRespuesta[2]);
     } else {
