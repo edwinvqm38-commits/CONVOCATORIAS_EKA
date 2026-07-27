@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sincronizarRespuestaConSheet } from "./sheets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -621,6 +622,25 @@ async function manejarResumen(chatId: string, convocatoriaId: string) {
   return await sendMessage(chatId, lines.join("\n"));
 }
 
+/** Relee el estado actual de una respuesta (y su convocatoria) desde Supabase
+ * y lo empuja a Google Sheets. Se llama después de cada mutación en
+ * convocatoria_respuestas para que la pestaña de esa convocatoria quede al
+ * día en tiempo real, sin depender de qué campo cambió. */
+async function sincronizarRespuesta(convocatoriaId: string, chatId: string) {
+  const [{ data: convocatoria }, { data: respuesta }] = await Promise.all([
+    supabase.from("convocatorias").select("titulo, fecha_servicio, fecha_limite_respuesta").eq(
+      "id",
+      convocatoriaId,
+    ).maybeSingle(),
+    supabase.from("convocatoria_respuestas").select("*").eq("convocatoria_id", convocatoriaId).eq(
+      "telegram_chat_id",
+      chatId,
+    ).maybeSingle(),
+  ]);
+  if (!convocatoria || !respuesta) return;
+  await sincronizarRespuestaConSheet(convocatoria, respuesta);
+}
+
 // --- Flujo de respuesta del usuario convocado -----------------------------
 
 async function manejarRespuestaCallback(
@@ -647,6 +667,7 @@ async function manejarRespuestaCallback(
     },
     { onConflict: "convocatoria_id,telegram_chat_id" },
   );
+  await sincronizarRespuesta(convocatoriaId, chatId);
 
   const lines = [
     "📢 <b>Convocatoria - Parada de planta</b>",
@@ -676,6 +697,7 @@ async function manejarEspecialidadCallback(chatId: string, callbackId: string, n
     .update({ especialidad: nombreEspecialidad })
     .eq("convocatoria_id", sesion.datos.convocatoria_id)
     .eq("telegram_chat_id", chatId);
+  await sincronizarRespuesta(sesion.datos.convocatoria_id, chatId);
 
   await answerCallback(callbackId, `Especialidad: ${nombreEspecialidad}`);
   const siguientePaso = ORDEN_RESPUESTA[ORDEN_RESPUESTA.indexOf("resp_especialidad") + 1];
@@ -714,6 +736,7 @@ async function manejarPasoRespuesta(chatId: string, sesion: Sesion, message: Non
       "telegram_chat_id",
       chatId,
     );
+    await sincronizarRespuesta(convocatoriaId, chatId);
 
     const siguientePaso = ORDEN_RESPUESTA[ORDEN_RESPUESTA.indexOf("resp_experiencia") + 1];
     await saveSession(chatId, siguientePaso, sesion.datos);
@@ -746,6 +769,7 @@ async function manejarPasoRespuesta(chatId: string, sesion: Sesion, message: Non
       "convocatoria_id",
       convocatoriaId,
     ).eq("telegram_chat_id", chatId);
+    await sincronizarRespuesta(convocatoriaId, chatId);
     await deleteSession(chatId);
     return await sendMessage(chatId, "✅ ¡Gracias! Tu registro (incluido tu CV) quedó completo.");
   }
@@ -757,6 +781,7 @@ async function manejarPasoRespuesta(chatId: string, sesion: Sesion, message: Non
     "telegram_chat_id",
     chatId,
   );
+  await sincronizarRespuesta(convocatoriaId, chatId);
 
   const siguientePaso = ORDEN_RESPUESTA[ORDEN_RESPUESTA.indexOf(paso) + 1];
 

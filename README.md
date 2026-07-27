@@ -185,6 +185,62 @@ Variables necesarias solo para esta vía (ver `.env.example`):
 `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEETS_CONTROL_ID`,
 `TELEGRAM_BOT_TOKEN`. No son necesarias si solo usas el bot vía Apps Script.
 
+## Sincronización a Google Sheets (bot en Supabase Edge Functions)
+
+Además de la versión 100% Apps Script descrita arriba, existe una segunda
+implementación del bot como **Supabase Edge Function**
+(`supabase/functions/convocatorias-bot/index.ts`), que guarda todo en
+Postgres (tablas `convocatoria_*`) y opcionalmente **espeja cada respuesta a
+un Google Sheet en tiempo real**, para que reclutadores trabajen ahí sin
+tocar Supabase.
+
+**Cómo evita romperse cuando varios reclutadores llenan columnas a la
+derecha:**
+
+- Cada convocatoria tiene su propia **pestaña** (tab) en un mismo Sheet
+  (nombrada `<título> - <fecha_servicio>`), creada automáticamente con la
+  primera respuesta.
+- Cada fila lleva, en la columna **A** (oculta, se puede ocultar a mano en el
+  Sheet), el `id` de la respuesta en Supabase. La sincronización **siempre
+  busca por ese id**, nunca por posición: si la persona ya tiene fila, la
+  reescribe (solo las columnas del bot); si es nueva, agrega una fila al
+  final. Nunca se ordena ni se inserta en medio del rango, así que las
+  columnas que agreguen los reclutadores a la derecha nunca cambian de fila.
+- Las columnas del bot (A hasta la última de la lista de encabezados en
+  `sheets.ts`) quedan protegidas vía la API de Sheets, editables solo por la
+  cuenta de servicio — los reclutadores trabajan libremente en las columnas
+  siguientes.
+- Si alguien responde **después** de `fecha_limite_respuesta`, no se
+  descarta: se sigue agregando/actualizando en la misma pestaña, con la
+  columna `estado_plazo` marcada como `⚠️ Fuera de fecha (respondió
+  DD/MM/AAAA)` en vez de `A tiempo`.
+- Duplicados de Telegram (la misma persona respondiendo dos veces a la misma
+  convocatoria) ya están cubiertos por el `unique(convocatoria_id,
+  telegram_chat_id)` de la tabla `convocatoria_respuestas`: Supabase actualiza
+  la misma fila en vez de crear otra, y la sync a Sheets hereda ese mismo
+  comportamiento porque sincroniza por ese mismo id.
+
+**Configuración** (variables de entorno / secrets del proyecto de Supabase,
+con `supabase secrets set NOMBRE=valor` o desde el dashboard):
+
+- `GOOGLE_SERVICE_ACCOUNT_JSON` — JSON completo (o en base64) de una cuenta
+  de servicio de Google con acceso a la API de **Google Sheets** habilitada
+  en el proyecto de Google Cloud. Es la misma variable que ya usan los
+  scripts Python opcionales (`agents/sheets_client.py`), puede ser la misma
+  cuenta de servicio.
+- `GOOGLE_SHEETS_RECLUTAMIENTO_ID` — ID del Google Sheet destino (el que va
+  en la URL, entre `/d/` y `/edit`). **Hay que compartir ese Sheet como
+  Editor con el `client_email` de la cuenta de servicio**, igual que con
+  cualquier otra integración por cuenta de servicio.
+- Si cualquiera de las dos falta, la sincronización a Sheets simplemente se
+  omite (no rompe el flujo del bot con el usuario en Telegram); los errores
+  de la API de Sheets quedan solo en los logs (`SHEETS_SYNC_ERROR`), nunca
+  interrumpen la respuesta al usuario.
+
+Esta sincronización es unidireccional (Supabase → Sheets). Las columnas que
+agreguen los reclutadores a la derecha no se leen de vuelta hacia Supabase;
+viven solo en el Sheet.
+
 ## Seguridad
 
 No subir el archivo `.env` ni ninguna llave de cuenta de servicio al
