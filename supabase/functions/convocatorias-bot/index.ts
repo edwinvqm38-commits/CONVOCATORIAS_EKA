@@ -695,6 +695,148 @@ async function manejarResumen(chatId: string, convocatoriaId: string) {
 
 // --- Flujo de respuesta del usuario convocado -----------------------------
 
+const CAMPO_POR_PASO: Record<string, string> = {
+  resp_nombres_completos: "nombres_completos",
+  resp_dni: "dni",
+  resp_telefono: "telefono",
+  resp_lugar_residencia: "lugar_residencia",
+  resp_especialidad: "especialidad",
+  resp_experiencia: "experiencia_texto",
+  resp_cv: "cv_drive_url",
+};
+
+const ETIQUETAS_CAMPO: Record<string, string> = {
+  nombres_completos: "tus nombres completos",
+  dni: "tu DNI",
+  telefono: "tu teléfono",
+  lugar_residencia: "tu lugar de residencia",
+  especialidad: "tu especialidad",
+};
+
+function pasoConfirmacion(paso: string): string {
+  return `confirmar_${paso}`;
+}
+
+/** Busca el perfil mas reciente que este mismo chat ya completo en OTRA
+ * convocatoria, para no volver a pedirle los mismos datos desde cero. Se
+ * evalua campo por campo (no todo o nada): si solo tiene telefono pero no
+ * CV todavia, solo se ofrece confirmar/editar telefono. */
+async function obtenerUltimoPerfil(chatId: string, convocatoriaIdActual: string) {
+  const { data } = await supabase
+    .from("convocatoria_respuestas")
+    .select(
+      "nombres_completos, dni, telefono, lugar_residencia, especialidad, experiencia_texto, experiencia_audio_file_id, cv_drive_url",
+    )
+    .eq("telegram_chat_id", chatId)
+    .neq("convocatoria_id", convocatoriaIdActual)
+    .order("respondido_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data;
+}
+
+function valorPrevioDeCampo(previo: Record<string, unknown> | null, campo: string): unknown {
+  if (!previo) return null;
+  if (campo === "experiencia_texto") return previo.experiencia_texto || previo.experiencia_audio_file_id;
+  return previo[campo];
+}
+
+function botonesConfirmarDato(campo: string) {
+  const textoConfirmar = campo === "cv_drive_url" ? "✅ Usar el mismo CV" : "✅ Confirmar";
+  const textoEditar = campo === "cv_drive_url" ? "📤 Subir uno nuevo" : "✏️ Editar";
+  return {
+    inline_keyboard: [[
+      { text: textoConfirmar, callback_data: `confdato:${campo}:confirmar` },
+      { text: textoEditar, callback_data: `confdato:${campo}:editar` },
+    ]],
+  };
+}
+
+function textoConfirmarDato(campo: string, previo: Record<string, unknown>): string {
+  if (campo === "cv_drive_url") {
+    return "📎 Ya tenemos un CV tuyo guardado de una convocatoria anterior.\n\n¿Lo usamos de nuevo o subes uno actualizado?";
+  }
+  if (campo === "experiencia_texto") {
+    const valor = (previo.experiencia_texto as string) || "(nota de voz guardada)";
+    return `🛠️ Tu experiencia registrada:\n"${escapeHtml(valor)}"\n\n¿La confirmas o la actualizas?`;
+  }
+  const etiqueta = ETIQUETAS_CAMPO[campo] ?? campo;
+  return `Tenemos registrado ${etiqueta}: <b>${escapeHtml(previo[campo])}</b>\n\n¿Lo confirmas o lo editas?`;
+}
+
+/** Muestra la pregunta de un paso desde cero (sin dato previo que confirmar):
+ * botones de especialidad, o la pregunta de texto/audio/documento que toque. */
+async function mostrarPreguntaPaso(chatId: string, paso: string) {
+  if (paso === "resp_especialidad") {
+    const especialidades = await getEspecialidades();
+    return await sendMessage(chatId, "🛠️ Indica tu especialidad:", botonesEspecialidades(especialidades));
+  }
+  return await sendMessage(chatId, PREGUNTAS_RESPUESTA[paso]);
+}
+
+/** Punto de entrada de cada paso del flujo: si el usuario ya tiene ese dato
+ * de una convocatoria anterior, ofrece confirmar/editar; si no, pregunta
+ * normalmente como siempre. */
+async function iniciarPaso(chatId: string, sesion: Sesion, paso: string) {
+  const previo = (sesion.datos.previo ?? null) as Record<string, unknown> | null;
+  const campo = CAMPO_POR_PASO[paso];
+  const valorPrevio = valorPrevioDeCampo(previo, campo);
+
+  if (valorPrevio) {
+    await saveSession(chatId, pasoConfirmacion(paso), sesion.datos);
+    return await sendMessage(chatId, textoConfirmarDato(campo, previo!), botonesConfirmarDato(campo));
+  }
+
+  await saveSession(chatId, paso, sesion.datos);
+  return await mostrarPreguntaPaso(chatId, paso);
+}
+
+/** Avanza al siguiente paso de ORDEN_RESPUESTA (o cierra el registro si ya
+ * no queda ninguno), decidiendo en cada uno si toca confirmar/editar o
+ * preguntar desde cero. Reemplaza la logica que antes estaba repetida al
+ * final de cada manejador de paso. */
+async function avanzarAlSiguientePaso(chatId: string, sesion: Sesion, pasoActual: string) {
+  const siguientePaso = ORDEN_RESPUESTA[ORDEN_RESPUESTA.indexOf(pasoActual) + 1];
+  if (!siguientePaso) {
+    await deleteSession(chatId);
+    return await sendMessage(chatId, "✅ ¡Gracias! Tu registro quedó completo.");
+  }
+  return await iniciarPaso(chatId, sesion, siguientePaso);
+}
+
+async function manejarConfirmarDatoCallback(chatId: string, callbackId: string, campo: string, accion: string) {
+  const paso = Object.entries(CAMPO_POR_PASO).find(([, c]) => c === campo)?.[0];
+  const sesion = await getSession(chatId);
+  if (!paso || !sesion || sesion.paso !== pasoConfirmacion(paso)) {
+    return await answerCallback(callbackId, "Esto ya no está activo.");
+  }
+
+  const convocatoriaId = sesion.datos.convocatoria_id;
+  const previo = (sesion.datos.previo ?? {}) as Record<string, unknown>;
+
+  if (accion === "editar") {
+    await answerCallback(callbackId, "Ok, indícalo de nuevo.");
+    await saveSession(chatId, paso, sesion.datos);
+    return await mostrarPreguntaPaso(chatId, paso);
+  }
+
+  if (campo === "experiencia_texto") {
+    await supabase.from("convocatoria_respuestas").update({
+      experiencia_texto: previo.experiencia_texto ?? null,
+      experiencia_audio_file_id: previo.experiencia_audio_file_id ?? null,
+    }).eq("convocatoria_id", convocatoriaId).eq("telegram_chat_id", chatId);
+  } else {
+    await supabase.from("convocatoria_respuestas").update({ [campo]: previo[campo] ?? null }).eq(
+      "convocatoria_id",
+      convocatoriaId,
+    ).eq("telegram_chat_id", chatId);
+  }
+  await sincronizarRespuesta(convocatoriaId, chatId);
+
+  await answerCallback(callbackId, "Confirmado.");
+  return await avanzarAlSiguientePaso(chatId, sesion, paso);
+}
+
 async function manejarRespuestaCallback(
   chatId: string,
   messageId: number,
@@ -736,8 +878,9 @@ async function manejarRespuestaCallback(
   await editMessage(chatId, messageId, lines.join("\n"));
   await answerCallback(callbackId, `Respuesta registrada: ${ETIQUETAS_RESPUESTA[respuesta]}`);
 
-  await saveSession(chatId, ORDEN_RESPUESTA[0], { convocatoria_id: convocatoriaId });
-  return await sendMessage(chatId, PREGUNTAS_RESPUESTA[ORDEN_RESPUESTA[0]]);
+  const previo = await obtenerUltimoPerfil(chatId, convocatoriaId);
+  const sesion: Sesion = { paso: ORDEN_RESPUESTA[0], datos: { convocatoria_id: convocatoriaId, previo } };
+  return await iniciarPaso(chatId, sesion, ORDEN_RESPUESTA[0]);
 }
 
 async function manejarEspecialidadCallback(chatId: string, callbackId: string, nombreEspecialidad: string) {
@@ -752,9 +895,7 @@ async function manejarEspecialidadCallback(chatId: string, callbackId: string, n
   await sincronizarRespuesta(sesion.datos.convocatoria_id, chatId);
 
   await answerCallback(callbackId, `Especialidad: ${nombreEspecialidad}`);
-  const siguientePaso = ORDEN_RESPUESTA[ORDEN_RESPUESTA.indexOf("resp_especialidad") + 1];
-  await saveSession(chatId, siguientePaso, sesion.datos);
-  return await sendMessage(chatId, PREGUNTAS_RESPUESTA[siguientePaso]);
+  return await avanzarAlSiguientePaso(chatId, sesion, "resp_especialidad");
 }
 
 async function manejarPasoRespuesta(chatId: string, sesion: Sesion, message: NonNullable<TelegramUpdate["message"]>) {
@@ -790,9 +931,7 @@ async function manejarPasoRespuesta(chatId: string, sesion: Sesion, message: Non
     );
     await sincronizarRespuesta(convocatoriaId, chatId);
 
-    const siguientePaso = ORDEN_RESPUESTA[ORDEN_RESPUESTA.indexOf("resp_experiencia") + 1];
-    await saveSession(chatId, siguientePaso, sesion.datos);
-    return await sendMessage(chatId, PREGUNTAS_RESPUESTA[siguientePaso]);
+    return await avanzarAlSiguientePaso(chatId, sesion, "resp_experiencia");
   }
 
   if (paso === "resp_cv") {
@@ -822,8 +961,7 @@ async function manejarPasoRespuesta(chatId: string, sesion: Sesion, message: Non
       convocatoriaId,
     ).eq("telegram_chat_id", chatId);
     await sincronizarRespuesta(convocatoriaId, chatId);
-    await deleteSession(chatId);
-    return await sendMessage(chatId, "✅ ¡Gracias! Tu registro (incluido tu CV) quedó completo.");
+    return await avanzarAlSiguientePaso(chatId, sesion, "resp_cv");
   }
 
   if (!texto) return await sendMessage(chatId, "Por favor responde con un mensaje de texto.");
@@ -835,16 +973,7 @@ async function manejarPasoRespuesta(chatId: string, sesion: Sesion, message: Non
   );
   await sincronizarRespuesta(convocatoriaId, chatId);
 
-  const siguientePaso = ORDEN_RESPUESTA[ORDEN_RESPUESTA.indexOf(paso) + 1];
-
-  if (siguientePaso === "resp_especialidad") {
-    const especialidades = await getEspecialidades();
-    await saveSession(chatId, siguientePaso, sesion.datos);
-    return await sendMessage(chatId, "🛠️ Indica tu especialidad:", botonesEspecialidades(especialidades));
-  }
-
-  await saveSession(chatId, siguientePaso, sesion.datos);
-  return await sendMessage(chatId, PREGUNTAS_RESPUESTA[siguientePaso]);
+  return await avanzarAlSiguientePaso(chatId, sesion, paso);
 }
 
 async function manejarStart(chatId: string, payload: string) {
@@ -889,12 +1018,15 @@ async function manejarUpdate(update: TelegramUpdate) {
     const matchRespuesta = data.match(/^conv:([^:]+):(.+)$/);
     const matchConfirmar = data.match(/^confirmar_convocatoria:(.+)$/);
     const matchEspecialidad = data.match(/^esp:(.+)$/);
+    const matchConfirmarDato = data.match(/^confdato:([^:]+):(.+)$/);
 
     if (matchConfirmar) {
       if (!isAdmin(chatId)) await answerCallback(cq.id, "Solo administradores.");
       else await manejarConfirmacionConvocar(chatId, cq.id, matchConfirmar[1]);
     } else if (matchEspecialidad) {
       await manejarEspecialidadCallback(chatId, cq.id, matchEspecialidad[1]);
+    } else if (matchConfirmarDato) {
+      await manejarConfirmarDatoCallback(chatId, cq.id, matchConfirmarDato[1], matchConfirmarDato[2]);
     } else if (matchRespuesta && cq.message) {
       await manejarRespuestaCallback(chatId, cq.message.message_id, cq.id, cq.from, matchRespuesta[1], matchRespuesta[2]);
     } else {
