@@ -155,6 +155,17 @@ function linkConvocatoria(username: string | null, convocatoriaId: string): stri
   return username ? `https://t.me/${username}?start=conv_${convocatoriaId}` : null;
 }
 
+/** Normaliza un telefono a formato wa.me: numeros de 9 digitos se asumen
+ * celulares peruanos (se les antepone 51); si ya traen mas digitos se
+ * asume que el codigo de pais ya viene incluido. Misma regla que
+ * scripts/exportar_respuestas_sheets.py. */
+function linkWhatsApp(telefono: string | null | undefined, etiqueta: string): string | null {
+  const soloDigitos = String(telefono ?? "").replace(/\D/g, "");
+  if (!soloDigitos) return null;
+  const conCodigoPais = soloDigitos.length === 9 ? `51${soloDigitos}` : soloDigitos;
+  return `<a href="https://wa.me/${conCodigoPais}">${escapeHtml(etiqueta)}</a>`;
+}
+
 // --- Google Drive (OAuth de usuario, no cuenta de servicio) ----------------
 //
 // Las cuentas de servicio no tienen cuota propia de almacenamiento en Drive
@@ -310,7 +321,7 @@ function construirNombreArchivoCv(nombresCompletos: string | null, dni: string |
   const base = partes.length ? partes.join(" - ") : `CV_${chatId}`;
   return base
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .replace(/[\\/:*?"<>|]/g, "")
     .trim();
 }
@@ -450,9 +461,49 @@ function helpTexto(admin: boolean): string {
     "<b>/cancelar</b> — Cancela lo que estés armando.",
     "<b>/especialidad_agregar Nombre</b> — Agrega una especialidad a la lista de botones.",
     "<b>/especialidades</b> — Lista las especialidades configuradas.",
-    "<b>/resumen convocatoria_id</b> — Cuenta de disponibles / no disponibles / posiblemente.",
+    "<b>/resumen convocatoria_id</b> — Cuenta de disponibles / no disponibles / posiblemente, con WhatsApp clickeable de cada contacto.",
     "<b>/vincular_drive codigo</b> — Cambia el token de Google Drive (ver README).",
+    "<b>/actualizar_menu</b> — Refresca el menú \"/\" de Telegram con estos comandos.",
   ]).join("\n");
+}
+
+// --- Menu nativo de comandos de Telegram (boton "/") ------------------
+
+const COMANDOS_PUBLICOS = [
+  { command: "start", description: "Registrarte para recibir convocatorias" },
+  { command: "ayuda", description: "Ver los comandos disponibles" },
+];
+
+const COMANDOS_ADMIN = [
+  ...COMANDOS_PUBLICOS,
+  { command: "convocar", description: "Crear y enviar una convocatoria" },
+  { command: "especialidad_agregar", description: "Agregar una especialidad a la lista" },
+  { command: "especialidades", description: "Listar las especialidades configuradas" },
+  { command: "resumen", description: "Ver respuestas de una convocatoria (con WhatsApp)" },
+  { command: "vincular_drive", description: "Vincular/renovar el acceso a Google Drive" },
+  { command: "cancelar", description: "Cancelar lo que estés armando" },
+  { command: "actualizar_menu", description: "Refrescar este menú de comandos" },
+];
+
+/** Registra el menu "/" de Telegram: la lista basica para cualquier chat, y
+ * la lista completa (con los comandos de administrador) solo para los
+ * chats de ADMIN_CHAT_IDS, via BotCommandScopeChat. Hay que llamarla a mano
+ * (con /actualizar_menu) despues de desplegar o de cambiar la lista de
+ * comandos -- Telegram no la refresca sola. */
+async function actualizarMenuComandos(): Promise<void> {
+  await telegram("setMyCommands", { commands: COMANDOS_PUBLICOS, scope: { type: "default" } });
+
+  const admins = ADMIN_CHAT_IDS.split(",").map((id) => id.trim()).filter(Boolean);
+  for (const adminId of admins) {
+    try {
+      await telegram("setMyCommands", {
+        commands: COMANDOS_ADMIN,
+        scope: { type: "chat", chat_id: adminId },
+      });
+    } catch (error) {
+      console.error("SET_MY_COMMANDS_ERROR:", adminId, error);
+    }
+  }
 }
 
 function validarFecha(v: string) { return /^\d{4}-\d{2}-\d{2}$/.test(v.trim()); }
@@ -603,7 +654,7 @@ async function manejarResumen(chatId: string, convocatoriaId: string) {
 
   const { data: respuestas } = await supabase
     .from("convocatoria_respuestas")
-    .select("respuesta")
+    .select("nombres_completos, nombre_telegram, telefono, especialidad, respuesta")
     .eq("convocatoria_id", convocatoriaId);
 
   const filas = respuestas ?? [];
@@ -619,26 +670,27 @@ async function manejarResumen(chatId: string, convocatoriaId: string) {
     `❌ No disponible: ${conteo.no_disponible}`,
     `🤔 Posiblemente: ${conteo.posiblemente}`,
   ];
-  return await sendMessage(chatId, lines.join("\n"));
-}
 
-/** Relee el estado actual de una respuesta (y su convocatoria) desde Supabase
- * y lo empuja a Google Sheets. Se llama después de cada mutación en
- * convocatoria_respuestas para que la pestaña de esa convocatoria quede al
- * día en tiempo real, sin depender de qué campo cambió. */
-async function sincronizarRespuesta(convocatoriaId: string, chatId: string) {
-  const [{ data: convocatoria }, { data: respuesta }] = await Promise.all([
-    supabase.from("convocatorias").select("titulo, fecha_servicio, fecha_limite_respuesta").eq(
-      "id",
-      convocatoriaId,
-    ).maybeSingle(),
-    supabase.from("convocatoria_respuestas").select("*").eq("convocatoria_id", convocatoriaId).eq(
-      "telegram_chat_id",
-      chatId,
-    ).maybeSingle(),
-  ]);
-  if (!convocatoria || !respuesta) return;
-  await sincronizarRespuestaConSheet(convocatoria, respuesta);
+  // Detalle con WhatsApp clickeable, solo de quienes hay que contactar
+  // (disponible / posiblemente). El listado completo (con DNI, CV, etc.)
+  // vive en la exportación a Sheets (scripts/exportar_respuestas_sheets.py).
+  const contactos = filas.filter((f) => f.respuesta === "disponible" || f.respuesta === "posiblemente");
+  const LIMITE_DETALLE = 40;
+  if (contactos.length) {
+    lines.push("", "<b>Contactos (disponible / posiblemente):</b>");
+    for (const fila of contactos.slice(0, LIMITE_DETALLE)) {
+      const nombre = escapeHtml(fila.nombres_completos || fila.nombre_telegram || "Sin nombre");
+      const especialidad = fila.especialidad ? ` — ${escapeHtml(fila.especialidad)}` : "";
+      const icono = fila.respuesta === "disponible" ? "✅" : "🤔";
+      const wa = linkWhatsApp(fila.telefono, "📱 WhatsApp");
+      lines.push(`${icono} ${nombre}${especialidad}${wa ? " — " + wa : ""}`);
+    }
+    if (contactos.length > LIMITE_DETALLE) {
+      lines.push(`… y ${contactos.length - LIMITE_DETALLE} más (ver exportación a Sheets para el listado completo).`);
+    }
+  }
+
+  return await sendMessage(chatId, lines.join("\n"));
 }
 
 // --- Flujo de respuesta del usuario convocado -----------------------------
@@ -806,6 +858,25 @@ async function manejarStart(chatId: string, payload: string) {
   return await sendMessage(chatId, textoConvocatoria(convocatoria), botonesConvocatoria(convocatoria.id));
 }
 
+/** Relee el estado actual de una respuesta (y su convocatoria) desde Supabase
+ * y lo empuja a Google Sheets. Se llama después de cada mutación en
+ * convocatoria_respuestas para que la pestaña de esa convocatoria quede al
+ * día en tiempo real, sin depender de qué campo cambió. */
+async function sincronizarRespuesta(convocatoriaId: string, chatId: string) {
+  const [{ data: convocatoria }, { data: respuesta }] = await Promise.all([
+    supabase.from("convocatorias").select("titulo, fecha_servicio, fecha_limite_respuesta").eq(
+      "id",
+      convocatoriaId,
+    ).maybeSingle(),
+    supabase.from("convocatoria_respuestas").select("*").eq("convocatoria_id", convocatoriaId).eq(
+      "telegram_chat_id",
+      chatId,
+    ).maybeSingle(),
+  ]);
+  if (!convocatoria || !respuesta) return;
+  await sincronizarRespuestaConSheet(convocatoria, respuesta);
+}
+
 // --- Dispatcher --------------------------------------------------------
 
 async function manejarUpdate(update: TelegramUpdate) {
@@ -881,6 +952,13 @@ async function manejarUpdate(update: TelegramUpdate) {
         const convocatoriaId = texto.replace("/resumen", "").trim();
         if (!convocatoriaId) await sendMessage(chatId, "Uso: /resumen <convocatoria_id>");
         else await manejarResumen(chatId, convocatoriaId);
+      }
+    } else if (texto === "/actualizar_menu") {
+      if (!isAdmin(chatId)) {
+        await sendMessage(chatId, "🔒 Este comando es solo para administradores.");
+      } else {
+        await actualizarMenuComandos();
+        await sendMessage(chatId, "✅ Menú \"/\" actualizado (para todos los administradores).");
       }
     } else if (texto.startsWith("/vincular_drive")) {
       if (!isAdmin(chatId)) {
