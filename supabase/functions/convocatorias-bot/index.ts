@@ -53,9 +53,13 @@ const PREGUNTAS_CONVOCAR: Record<string, string> = {
     '⏰ ¿Hasta cuándo pueden responder? Formato AAAA-MM-DD o AAAA-MM-DD HH:MM (o envía "-" si no aplica).',
 };
 
+// El DNI va primero (antes que el nombre) a propósito: es la llave para
+// reconocer a alguien que ya está en convocatoria_personal (cargado a mano
+// por RRHH, o de una respuesta anterior) y saltar directo a
+// confirmar/editar en vez de volver a preguntar todo desde cero.
 const ORDEN_RESPUESTA = [
-  "resp_nombres_completos",
   "resp_dni",
+  "resp_nombres_completos",
   "resp_telefono",
   "resp_lugar_residencia",
   "resp_especialidad",
@@ -751,6 +755,18 @@ async function buscarPerfilPorDni(dni: string, convocatoriaIdActual: string) {
   return data;
 }
 
+/** Busca en la base maestra de personal (convocatoria_personal): cubre a
+ * alguien que RRHH ya cargó a mano (en NocoDB) pero que nunca respondió por
+ * Telegram, para que igual se le reconozca como ya registrado. */
+async function buscarEnPersonal(dni: string) {
+  const { data } = await supabase
+    .from("convocatoria_personal")
+    .select("nombres_completos, telefono, lugar_residencia, especialidad")
+    .eq("dni", dni)
+    .maybeSingle();
+  return data;
+}
+
 /** Combina dos perfiles priorizando los valores no vacios de "prioritario"
  * (el que ya veniamos usando) y rellenando los huecos con "respaldo" (el
  * encontrado por DNI). */
@@ -1114,9 +1130,22 @@ async function manejarPasoRespuesta(chatId: string, sesion: Sesion, message: Non
   await sincronizarRespuesta(convocatoriaId, chatId);
 
   if (paso === "resp_dni") {
-    const porDni = await buscarPerfilPorDni(texto, convocatoriaId);
-    if (porDni) {
-      sesion.datos.previo = fusionarPerfiles((sesion.datos.previo ?? null) as Record<string, unknown> | null, porDni);
+    const [porDni, enPersonal] = await Promise.all([
+      buscarPerfilPorDni(texto, convocatoriaId),
+      buscarEnPersonal(texto),
+    ]);
+    let previo = (sesion.datos.previo ?? null) as Record<string, unknown> | null;
+    previo = fusionarPerfiles(previo, porDni);
+    previo = fusionarPerfiles(previo, enPersonal);
+    sesion.datos.previo = previo;
+
+    if (enPersonal) {
+      await sendMessage(
+        chatId,
+        `✅ Ya te tenemos registrado en nuestra base de personal como <b>${
+          escapeHtml(enPersonal.nombres_completos ?? "")
+        }</b>. Solo confirma o actualiza tus datos:`,
+      );
     }
   }
 
