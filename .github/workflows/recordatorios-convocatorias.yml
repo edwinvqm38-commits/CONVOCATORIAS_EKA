@@ -2,9 +2,11 @@ name: Convocatorias - Recordatorios diarios
 
 on:
   workflow_dispatch:
-  schedule:
-    # 13:00 UTC = 8:00 am hora Peru
-    - cron: "0 13 * * *"
+  # Cron diario desactivado: fallaba desde julio por falta del secreto
+  # GOOGLE_SERVICE_ACCOUNT_JSON en el repo. Reactivar el bloque `schedule`
+  # una vez configurado el secreto.
+  # schedule:
+  #   - cron: "0 13 * * *"  # 13:00 UTC = 8:00 am hora Peru
 
 jobs:
   recordatorios:
