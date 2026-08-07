@@ -2,6 +2,9 @@
 
 # dependencies
 node_modules/
+# excluido a proposito (no lo subimos por su tamano); npm install lo
+# regenera solo a partir de package.json
+package-lock.json
 
 # Expo
 .expo/
