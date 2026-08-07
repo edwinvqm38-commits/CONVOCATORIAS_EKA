@@ -1,40 +1,38 @@
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
+
 import { supabase } from '@/lib/supabase';
 import type { Rol } from '@/types';
 
-// MVP solo-Perú (ver README, sección 8): si el número no trae código de
-// país, se asume Perú. Mismo criterio que ya usa el bot de Telegram de
-// este repo para los teléfonos.
-export function normalizarTelefono(telefono: string): string {
-  const limpio = telefono.replace(/[\s-]/g, '');
-  if (limpio.startsWith('+')) return limpio;
-  if (limpio.startsWith('51')) return `+${limpio}`;
-  return `+51${limpio}`;
-}
+WebBrowser.maybeCompleteAuthSession();
 
-export async function enviarCodigoTelefono(telefono: string): Promise<string> {
-  const telefonoNormalizado = normalizarTelefono(telefono);
-  const { error } = await supabase.auth.signInWithOtp({ phone: telefonoNormalizado });
-  if (error) throw error;
-  return telefonoNormalizado;
-}
-
-// Confirma el código SMS. Si es la primera vez que este teléfono entra a
-// ParadaYa, Supabase crea la cuenta ahí mismo — por eso devolvemos
-// "esNuevo" para que la pantalla le pida nombre (y rol) antes de dejarlo
-// pasar al feed.
-export async function verificarCodigoTelefono(
-  telefono: string,
-  codigo: string
-): Promise<{ esNuevo: boolean }> {
-  const { error } = await supabase.auth.verifyOtp({
-    phone: normalizarTelefono(telefono),
-    token: codigo,
-    type: 'sms',
+// Requiere que Google esté configurado como proveedor en el panel de
+// Supabase (Authentication → Providers → Google) — ver README, sección 10.
+export async function iniciarSesionConGoogle() {
+  const redirectTo = Linking.createURL('auth/callback');
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo, skipBrowserRedirect: true },
   });
   if (error) throw error;
+  if (!data.url) throw new Error('Supabase no devolvió una URL de autenticación.');
 
-  const rolActual = await obtenerRolActual();
-  return { esNuevo: rolActual === null };
+  const resultado = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+  if (resultado.type !== 'success' || !resultado.url) {
+    throw new Error('Se canceló el ingreso con Google.');
+  }
+
+  const params = extraerParametrosDeHash(resultado.url);
+  if (params.error) throw new Error(params.error_description ?? params.error);
+  if (!params.access_token || !params.refresh_token) {
+    throw new Error('La respuesta de Google no incluyó una sesión válida.');
+  }
+
+  const { error: sesionError } = await supabase.auth.setSession({
+    access_token: params.access_token,
+    refresh_token: params.refresh_token,
+  });
+  if (sesionError) throw sesionError;
 }
 
 export async function completarRegistroTecnico(nombresCompletos: string, correoContacto?: string) {
@@ -104,4 +102,20 @@ export async function obtenerRolActual(): Promise<Rol | null> {
   if (empresa) return 'empresa';
 
   return null;
+}
+
+// Correo y nombre que haya devuelto Google, para prellenar el paso de
+// "completar perfil" cuando es la primera vez que alguien entra.
+export async function obtenerDatosSesionActual(): Promise<{ correo: string | null; nombre: string | null }> {
+  const { data } = await supabase.auth.getUser();
+  return {
+    correo: data.user?.email ?? null,
+    nombre: (data.user?.user_metadata?.full_name as string | undefined) ?? null,
+  };
+}
+
+function extraerParametrosDeHash(url: string): Record<string, string> {
+  const indice = url.indexOf('#');
+  if (indice === -1) return {};
+  return Object.fromEntries(new URLSearchParams(url.slice(indice + 1)));
 }

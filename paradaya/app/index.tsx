@@ -3,37 +3,32 @@ import { router } from 'expo-router';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BotonPrimario } from '@/components/Buttons';
+import { BotonContorno, BotonPrimario } from '@/components/Buttons';
 import { colors, radius, spacing } from '@/constants/theme';
 import { supabase, supabaseConfigurado } from '@/lib/supabase';
 import {
   completarRegistroEmpresa,
   completarRegistroTecnico,
-  enviarCodigoTelefono,
   iniciarSesionConCorreo,
+  iniciarSesionConGoogle,
+  obtenerDatosSesionActual,
   obtenerRolActual,
   registrarEmpresa,
   registrarTecnico,
-  verificarCodigoTelefono,
 } from '@/services/auth';
 import { useAppState } from '@/state/AppState';
 import type { Rol } from '@/types';
 
-type Metodo = 'correo' | 'telefono';
 type ModoCorreo = 'ingresar' | 'crear';
-type PasoTelefono = 'numero' | 'codigo' | 'perfil';
 
 export default function PantallaIngreso() {
   const { setRol } = useAppState();
-  const [metodo, setMetodo] = useState<Metodo>('telefono');
   const [modoCorreo, setModoCorreo] = useState<ModoCorreo>('ingresar');
-  const [pasoTelefono, setPasoTelefono] = useState<PasoTelefono>('numero');
   const [rolSeleccionado, setRolSeleccionado] = useState<Rol>('tecnico');
+  const [completandoPerfil, setCompletandoPerfil] = useState(false);
 
   const [correo, setCorreo] = useState('');
   const [clave, setClave] = useState('');
-  const [telefono, setTelefono] = useState('');
-  const [codigo, setCodigo] = useState('');
   const [nombresCompletos, setNombresCompletos] = useState('');
   const [correoContacto, setCorreoContacto] = useState('');
   const [nombreEmpresa, setNombreEmpresa] = useState('');
@@ -86,39 +81,30 @@ export default function PantallaIngreso() {
     }
   }
 
-  async function enviarCodigo() {
+  async function conGoogle() {
     setError(null);
     setCargando(true);
     try {
-      const telefonoNormalizado = await enviarCodigoTelefono(telefono);
-      setTelefono(telefonoNormalizado);
-      setPasoTelefono('codigo');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudo enviar el código.');
-    } finally {
-      setCargando(false);
-    }
-  }
-
-  async function verificarCodigo() {
-    setError(null);
-    setCargando(true);
-    try {
-      const { esNuevo } = await verificarCodigoTelefono(telefono, codigo);
-      if (esNuevo) {
-        setPasoTelefono('perfil');
-      } else {
-        const rolActual = await obtenerRolActual();
-        if (rolActual) entrarComo(rolActual);
+      await iniciarSesionConGoogle();
+      const rolActual = await obtenerRolActual();
+      if (rolActual) {
+        entrarComo(rolActual);
+        return;
       }
+      // Primera vez con esta cuenta de Google: pedimos los datos mínimos
+      // antes de dejarlo pasar. Prellenamos lo que Google ya nos dio.
+      const datos = await obtenerDatosSesionActual();
+      if (datos.correo) setCorreoContacto(datos.correo);
+      if (datos.nombre) setNombresCompletos(datos.nombre);
+      setCompletandoPerfil(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Código incorrecto o vencido.');
+      setError(e instanceof Error ? e.message : 'Ocurrió un error inesperado.');
     } finally {
       setCargando(false);
     }
   }
 
-  async function terminarRegistroTelefono() {
+  async function terminarRegistro() {
     setError(null);
     setCargando(true);
     try {
@@ -166,68 +152,86 @@ export default function PantallaIngreso() {
           </View>
         )}
 
-        <View style={styles.selectorModo}>
-          <Pressable
-            onPress={() => setMetodo('telefono')}
-            style={[styles.opcion, metodo === 'telefono' && styles.opcionActiva]}
-          >
-            <Text style={[styles.opcionTexto, metodo === 'telefono' && styles.opcionTextoActivo]}>
-              Teléfono
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setMetodo('correo')}
-            style={[styles.opcion, metodo === 'correo' && styles.opcionActiva]}
-          >
-            <Text style={[styles.opcionTexto, metodo === 'correo' && styles.opcionTextoActivo]}>
-              Correo
-            </Text>
-          </Pressable>
-        </View>
-
-        {metodo === 'telefono' ? (
+        {completandoPerfil ? (
           <View style={styles.form}>
-            {pasoTelefono === 'numero' && (
+            <Text style={styles.notaPaso}>Primera vez por aquí — cuéntanos quién eres.</Text>
+            <View style={styles.selector}>
+              <Pressable
+                onPress={() => setRolSeleccionado('tecnico')}
+                style={[styles.opcion, rolSeleccionado === 'tecnico' && styles.opcionActiva]}
+              >
+                <Text style={[styles.opcionTexto, rolSeleccionado === 'tecnico' && styles.opcionTextoActivo]}>
+                  Técnico / Ingeniero
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setRolSeleccionado('empresa')}
+                style={[styles.opcion, rolSeleccionado === 'empresa' && styles.opcionActiva]}
+              >
+                <Text style={[styles.opcionTexto, rolSeleccionado === 'empresa' && styles.opcionTextoActivo]}>
+                  Empresa
+                </Text>
+              </Pressable>
+            </View>
+
+            {rolSeleccionado === 'tecnico' ? (
               <>
+                <Campo etiqueta="Nombres completos" valor={nombresCompletos} onCambiar={setNombresCompletos} />
                 <Campo
-                  etiqueta="Número de celular"
-                  valor={telefono}
-                  onCambiar={setTelefono}
-                  placeholder="+51 987 654 321"
+                  etiqueta="Correo de contacto"
+                  valor={correoContacto}
+                  onCambiar={setCorreoContacto}
+                  teclado="email-address"
+                  autoCapitalizar="none"
                 />
-                {error && <Text style={styles.error}>{error}</Text>}
-                <BotonPrimario
-                  label={cargando ? 'Enviando…' : 'Enviar código'}
-                  onPress={enviarCodigo}
-                  disabled={cargando}
-                />
+              </>
+            ) : (
+              <>
+                <Campo etiqueta="Nombre de la empresa" valor={nombreEmpresa} onCambiar={setNombreEmpresa} />
+                <Campo etiqueta="RUC" valor={ruc} onCambiar={setRuc} teclado="number-pad" />
               </>
             )}
 
-            {pasoTelefono === 'codigo' && (
-              <>
-                <Text style={styles.notaPaso}>Te enviamos un código por SMS a {telefono}.</Text>
-                <Campo
-                  etiqueta="Código de 6 dígitos"
-                  valor={codigo}
-                  onCambiar={setCodigo}
-                  teclado="number-pad"
-                />
-                {error && <Text style={styles.error}>{error}</Text>}
-                <BotonPrimario
-                  label={cargando ? 'Verificando…' : 'Verificar'}
-                  onPress={verificarCodigo}
-                  disabled={cargando}
-                />
-                <Pressable onPress={() => setPasoTelefono('numero')} style={styles.linkDemo}>
-                  <Text style={styles.linkDemoTexto}>Cambiar número</Text>
+            {error && <Text style={styles.error}>{error}</Text>}
+            <BotonPrimario
+              label={cargando ? 'Un momento…' : 'Terminar registro'}
+              onPress={terminarRegistro}
+              disabled={cargando}
+            />
+          </View>
+        ) : (
+          <>
+            <View style={styles.form}>
+              <BotonContorno label="Continuar con Google" onPress={conGoogle} tono={colors.brand} />
+            </View>
+
+            <View style={styles.divisor}>
+              <View style={styles.linea} />
+              <Text style={styles.divisorTexto}>o con tu correo</Text>
+              <View style={styles.linea} />
+            </View>
+
+            <View style={styles.form}>
+              <View style={styles.selectorModo}>
+                <Pressable
+                  onPress={() => setModoCorreo('ingresar')}
+                  style={[styles.opcion, modoCorreo === 'ingresar' && styles.opcionActiva]}
+                >
+                  <Text style={[styles.opcionTexto, modoCorreo === 'ingresar' && styles.opcionTextoActivo]}>
+                    Iniciar sesión
+                  </Text>
                 </Pressable>
-              </>
-            )}
+                <Pressable
+                  onPress={() => setModoCorreo('crear')}
+                  style={[styles.opcion, modoCorreo === 'crear' && styles.opcionActiva]}
+                >
+                  <Text style={[styles.opcionTexto, modoCorreo === 'crear' && styles.opcionTextoActivo]}>
+                    Crear cuenta
+                  </Text>
+                </Pressable>
+              </View>
 
-            {pasoTelefono === 'perfil' && (
-              <>
-                <Text style={styles.notaPaso}>Primera vez por aquí — cuéntanos quién eres.</Text>
+              {modoCorreo === 'crear' && (
                 <View style={styles.selector}>
                   <Pressable
                     onPress={() => setRolSeleccionado('tecnico')}
@@ -250,109 +254,35 @@ export default function PantallaIngreso() {
                     </Text>
                   </Pressable>
                 </View>
+              )}
 
-                {rolSeleccionado === 'tecnico' ? (
-                  <>
-                    <Campo etiqueta="Nombres completos" valor={nombresCompletos} onCambiar={setNombresCompletos} />
-                    <Campo
-                      etiqueta="Correo (opcional — para que las empresas te escriban)"
-                      valor={correoContacto}
-                      onCambiar={setCorreoContacto}
-                      teclado="email-address"
-                      autoCapitalizar="none"
-                    />
-                    <Text style={styles.notaChica}>
-                      Si lo dejas vacío ahora, lo puedes agregar después desde tu Perfil.
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    <Campo etiqueta="Nombre de la empresa" valor={nombreEmpresa} onCambiar={setNombreEmpresa} />
-                    <Campo etiqueta="RUC" valor={ruc} onCambiar={setRuc} teclado="number-pad" />
-                  </>
-                )}
+              {modoCorreo === 'crear' && rolSeleccionado === 'tecnico' && (
+                <Campo etiqueta="Nombres completos" valor={nombresCompletos} onCambiar={setNombresCompletos} />
+              )}
+              {modoCorreo === 'crear' && rolSeleccionado === 'empresa' && (
+                <>
+                  <Campo etiqueta="Nombre de la empresa" valor={nombreEmpresa} onCambiar={setNombreEmpresa} />
+                  <Campo etiqueta="RUC" valor={ruc} onCambiar={setRuc} teclado="number-pad" />
+                </>
+              )}
+              <Campo
+                etiqueta="Correo electrónico"
+                valor={correo}
+                onCambiar={setCorreo}
+                teclado="email-address"
+                autoCapitalizar="none"
+              />
+              <Campo etiqueta="Contraseña" valor={clave} onCambiar={setClave} oculta />
 
-                {error && <Text style={styles.error}>{error}</Text>}
-                <BotonPrimario
-                  label={cargando ? 'Un momento…' : 'Terminar registro'}
-                  onPress={terminarRegistroTelefono}
-                  disabled={cargando}
-                />
-              </>
-            )}
-          </View>
-        ) : (
-          <View style={styles.form}>
-            <View style={styles.selectorModo}>
-              <Pressable
-                onPress={() => setModoCorreo('ingresar')}
-                style={[styles.opcion, modoCorreo === 'ingresar' && styles.opcionActiva]}
-              >
-                <Text style={[styles.opcionTexto, modoCorreo === 'ingresar' && styles.opcionTextoActivo]}>
-                  Iniciar sesión
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setModoCorreo('crear')}
-                style={[styles.opcion, modoCorreo === 'crear' && styles.opcionActiva]}
-              >
-                <Text style={[styles.opcionTexto, modoCorreo === 'crear' && styles.opcionTextoActivo]}>
-                  Crear cuenta
-                </Text>
-              </Pressable>
+              {error && <Text style={styles.error}>{error}</Text>}
+
+              <BotonPrimario
+                label={cargando ? 'Un momento…' : modoCorreo === 'ingresar' ? 'Iniciar sesión' : 'Crear cuenta'}
+                onPress={enviarPorCorreo}
+                disabled={cargando}
+              />
             </View>
-
-            {modoCorreo === 'crear' && (
-              <View style={styles.selector}>
-                <Pressable
-                  onPress={() => setRolSeleccionado('tecnico')}
-                  style={[styles.opcion, rolSeleccionado === 'tecnico' && styles.opcionActiva]}
-                >
-                  <Text
-                    style={[styles.opcionTexto, rolSeleccionado === 'tecnico' && styles.opcionTextoActivo]}
-                  >
-                    Técnico / Ingeniero
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => setRolSeleccionado('empresa')}
-                  style={[styles.opcion, rolSeleccionado === 'empresa' && styles.opcionActiva]}
-                >
-                  <Text
-                    style={[styles.opcionTexto, rolSeleccionado === 'empresa' && styles.opcionTextoActivo]}
-                  >
-                    Empresa
-                  </Text>
-                </Pressable>
-              </View>
-            )}
-
-            {modoCorreo === 'crear' && rolSeleccionado === 'tecnico' && (
-              <Campo etiqueta="Nombres completos" valor={nombresCompletos} onCambiar={setNombresCompletos} />
-            )}
-            {modoCorreo === 'crear' && rolSeleccionado === 'empresa' && (
-              <>
-                <Campo etiqueta="Nombre de la empresa" valor={nombreEmpresa} onCambiar={setNombreEmpresa} />
-                <Campo etiqueta="RUC" valor={ruc} onCambiar={setRuc} teclado="number-pad" />
-              </>
-            )}
-            <Campo
-              etiqueta="Correo electrónico"
-              valor={correo}
-              onCambiar={setCorreo}
-              teclado="email-address"
-              autoCapitalizar="none"
-            />
-            <Campo etiqueta="Contraseña" valor={clave} onCambiar={setClave} oculta />
-
-            {error && <Text style={styles.error}>{error}</Text>}
-
-            <BotonPrimario
-              label={cargando ? 'Un momento…' : modoCorreo === 'ingresar' ? 'Iniciar sesión' : 'Crear cuenta'}
-              onPress={enviarPorCorreo}
-              disabled={cargando}
-            />
-          </View>
+          </>
         )}
 
         <Pressable onPress={explorarModoDemo} style={styles.linkDemo}>
@@ -409,6 +339,9 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   avisoDemoTexto: { fontSize: 12, color: colors.info, lineHeight: 17 },
+  divisor: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  linea: { flex: 1, height: 1, backgroundColor: colors.border },
+  divisorTexto: { fontSize: 11.5, color: colors.textMuted, fontWeight: '600' },
   selectorModo: {
     flexDirection: 'row',
     backgroundColor: colors.bg,
@@ -442,7 +375,6 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   notaPaso: { fontSize: 12.5, color: colors.textMuted, textAlign: 'center' },
-  notaChica: { fontSize: 11.5, color: colors.textMuted, marginTop: -6 },
   error: { fontSize: 12.5, color: colors.danger, textAlign: 'center' },
   linkDemo: { alignItems: 'center', paddingVertical: spacing.sm },
   linkDemoTexto: { fontSize: 12.5, color: colors.textMuted, fontWeight: '600' },
