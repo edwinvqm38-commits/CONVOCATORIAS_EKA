@@ -3,12 +3,14 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { BotonContorno } from '@/components/Buttons';
 import { colors, radius, spacing } from '@/constants/theme';
+import { cerrarSesion as cerrarSesionSupabase } from '@/services/auth';
 import { useAppState } from '@/state/AppState';
 
 export default function PerfilTecnico() {
   const { tecnico, setRol } = useAppState();
 
-  function cerrarSesion() {
+  async function cerrarSesion() {
+    await cerrarSesionSupabase();
     setRol(null);
     router.replace('/');
   }
