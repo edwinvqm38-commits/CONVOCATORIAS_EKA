@@ -189,69 +189,95 @@ la carpeta `services/` lo deja preparado para no bloquear el futuro:
 
 ### Dónde vive la base de datos
 
-Todo en **Supabase**, con tablas nuevas con prefijo **`paradaya_`**
-(`paradaya_empresas`, `paradaya_tecnicos`, `paradaya_paradas_planta`,
-`paradaya_postulaciones`, etc. — 9 tablas en total). El SQL completo, con
-seguridad a nivel de fila (RLS) y los buckets de archivos, ya está escrito
-en [`supabase/migrations/2026_08_07_create_paradaya_schema.sql`](supabase/migrations/2026_08_07_create_paradaya_schema.sql).
+✅ **Decidido:** el mismo proyecto de Supabase que ya usa EKA Convocatorias
+(el de `OFICINA_IA`). Las tablas de ParadaYa llevan el prefijo
+**`paradaya_`** (`paradaya_empresas`, `paradaya_tecnicos`,
+`paradaya_paradas_planta`, `paradaya_postulaciones`, etc. — 9 tablas en
+total) para no chocar nunca con las tablas `convocatoria_*` del bot de
+Telegram: son tablas completamente aparte, con sus propias reglas de
+seguridad (RLS) — nada de lo que haga la app de ParadaYa puede leer,
+escribir ni afectar los datos de Convocatorias, y viceversa. El SQL
+completo ya está escrito en
+[`supabase/migrations/2026_08_07_create_paradaya_schema.sql`](supabase/migrations/2026_08_07_create_paradaya_schema.sql).
 
-Ese prefijo hace que estas tablas puedan vivir **en el mismo proyecto de
-Supabase que ya usa EKA Convocatorias** (tablas `convocatoria_*`) sin
-chocar entre sí — es la opción más simple si no quieres administrar dos
-proyectos separados. La alternativa es un proyecto de Supabase
-completamente nuevo, dedicado solo a ParadaYa (más aislado, útil si más
-adelante separas esto en su propio repositorio). El SQL sirve igual en
-cualquiera de los dos casos.
+Ya tengo el **Project URL** y la **anon public key** que me pasaste (las
+guardé en un archivo `.env` local, que está en `.gitignore` — nunca se
+sube al repositorio).
 
-**Lo que necesito de ti para dejarlo funcionando de verdad:**
+**Un solo paso pendiente de tu lado — correr la migración:**
 
-1. Confirmarme cuál de las dos opciones prefieres (mismo proyecto vs. uno
-   nuevo). Si no tienes cuenta de Supabase todavía, crearla es gratis en
-   [supabase.com](https://supabase.com).
-2. Entrar al panel de ese proyecto → **SQL Editor** → pegar y correr el
-   contenido del archivo de migración de arriba (crea las tablas, activa
-   la seguridad, y dos buckets de Storage: `paradaya-documentos` para CVs
-   y documentos, y `paradaya-logos` para logos de empresa).
-3. Pasarme el **Project URL** y la **anon public key** del proyecto
-   (Settings → API). Esas dos son seguras de compartir — la seguridad real
-   la hacen las políticas de RLS del paso anterior, no el secreto de esa
-   key. **Nunca compartas la `service_role` key** — esa sí es secreta.
+1. Entra a [supabase.com/dashboard/project/evredshfmwimdgcypxlh/sql/new](https://supabase.com/dashboard/project/evredshfmwimdgcypxlh/sql/new)
+   (SQL Editor de tu proyecto, ya con el link directo).
+2. Pega ahí el contenido completo de
+   [`supabase/migrations/2026_08_07_create_paradaya_schema.sql`](supabase/migrations/2026_08_07_create_paradaya_schema.sql)
+   y dale **Run**. Esto crea las 9 tablas, activa la seguridad, precarga
+   el catálogo de especialidades, y crea dos buckets de Storage
+   (`paradaya-documentos` privado para CVs/DNI, `paradaya-logos` público
+   para logos de empresa). No toca ninguna tabla `convocatoria_*`
+   existente.
+3. Avísame cuando lo corras — no lo puedo ejecutar yo mismo porque el
+   entorno donde trabajo tiene bloqueado el acceso de red a Supabase por
+   política de la organización (ver nota al final de esta sección).
 
-Con eso yo agrego un archivo `.env` (ya está en `.gitignore`, no se sube al
-repo) con esas dos variables y la app pasa de "modo demo" a datos reales.
+### Login: teléfono (SMS), correo/contraseña, o registro manual
 
-### Login: correo/contraseña, Google, o registro manual
+La pantalla de ingreso (`app/index.tsx`) tiene dos métodos, con selector
+arriba:
 
-La pantalla de ingreso (`app/index.tsx`) ya tiene los tres casos
-construidos:
+- **Teléfono (por defecto)** — el técnico o la empresa escribe su número,
+  recibe un código por SMS, lo confirma. Si es la primera vez, justo
+  después le pide nombre (y para el técnico, opcionalmente su correo de
+  contacto) antes de entrar. **Requiere un paso tuyo:** Supabase necesita
+  un proveedor de SMS configurado (no viene activado por defecto):
+  1. Crea una cuenta en [Twilio](https://www.twilio.com/try-twilio) (tiene
+     prueba gratuita) y anota el **Account SID**, **Auth Token**, y compra
+     o activa un número de envío de SMS.
+  2. En el panel de Supabase → **Authentication → Providers → Phone**,
+     actívalo, elige Twilio, y pega esos datos.
+  3. Avísame cuando esté listo y probamos el flujo completo.
+  
+  Mientras tanto, el botón muestra un error claro en vez de fallar en
+  silencio.
+- **Correo y contraseña** — funciona apenas esté corrida la migración
+  (paso anterior), sin configuración adicional. Incluye "Iniciar sesión" y
+  "Crear cuenta" con los datos mínimos por rol.
 
-- **Correo y contraseña** — funciona apenas conectemos Supabase (paso
-  anterior), sin configuración adicional.
-- **Registro manual** — el formulario de "Crear cuenta" ya pide los datos
-  mínimos por rol (nombres completos para técnico; nombre y RUC para
-  empresa) y crea la fila correspondiente en `paradaya_tecnicos` o
-  `paradaya_empresas` al registrarse.
-- **Seguir con Google** — el botón y el código ya están listos, pero
-  Google requiere una configuración aparte (no la puedo hacer yo por ti,
-  necesita tu cuenta de Google):
-  1. En [Google Cloud Console](https://console.cloud.google.com/) → crear
-     un proyecto (o usar uno existente) → **APIs y servicios →
-     Credenciales** → crear un **ID de cliente de OAuth** de tipo
-     "Aplicación web".
-  2. En **URIs de redireccionamiento autorizados**, agregar la URL de
-     callback que te muestra Supabase (la ves en el siguiente paso).
-  3. En el panel de Supabase → **Authentication → Providers → Google**,
-     activarlo y pegar el **Client ID** y **Client Secret** que te dio
-     Google en el paso 1.
-  4. Avísame cuando esté listo y probamos el botón.
+*(Se sacó la opción de Google que habíamos planteado antes — la
+reemplazamos por teléfono, según pediste.)*
 
-Mientras no completemos esto, "Continuar con Google" muestra un error
-claro en vez de fallar en silencio.
+### El correo de contacto del técnico
+
+Para que las empresas puedan responderle a un técnico por correo (aunque
+haya entrado con su número de teléfono), la tabla `paradaya_tecnicos` tiene
+una columna `correo_contacto` separada de su forma de ingresar a la app:
+
+- Se puede completar de una vez al registrarse (campo opcional en el paso
+  de "primera vez por aquí").
+- O agregarse/editarse después desde la pestaña **Perfil** — ahí mismo
+  también puede actualizar su nombre y teléfono. Ese guardado ya escribe
+  directo a Supabase (no es un dato de ejemplo).
 
 ### Qué sigue conectado a datos de ejemplo todavía
 
-Con esta fase, **las cuentas y el login ya son reales** (una vez
-conectado Supabase). El feed de paradas, mis postulaciones, y el panel de
-la empresa **siguen mostrando los datos de ejemplo** — conectarlos a las
-tablas reales (`paradaya_paradas_planta`, `paradaya_postulaciones`, etc.)
-es el siguiente paso natural, ya con el esquema listo para eso.
+Las cuentas y el login ya son reales (una vez corrida la migración) y el
+perfil del técnico ya lee/guarda sus datos de contacto reales. El feed de
+paradas, mis postulaciones, y el panel de la empresa **siguen mostrando
+los datos de ejemplo** — conectarlos a las tablas reales
+(`paradaya_paradas_planta`, `paradaya_postulaciones`, etc.) es el
+siguiente paso natural, ya con el esquema listo para eso.
+
+### Nota sobre las pruebas que sí pude hacer y las que no
+
+El entorno donde yo trabajo (una sandbox en la nube) tiene bloqueado por
+política de la organización el acceso de red a `supabase.co` — ni
+siquiera puedo hacer una consulta de lectura desde aquí. Eso no afecta a
+la app en tu celular (ahí sí hay red normal), pero sí significa que:
+
+- **Sí probé:** que la pantalla no se rompe, que los dos métodos de login
+  se ven y navegan bien, y que un error de red se muestra de forma clara
+  (probé exactamente eso — falló por el bloqueo, como se esperaba, y la
+  app lo mostró en pantalla en vez de crashear).
+- **No pude probar:** el flujo real de principio a fin (mandar el código
+  SMS, verificarlo, guardar en las tablas) porque necesita llegar a
+  Supabase de verdad. Eso lo probamos juntos cuando tengas el proveedor de
+  SMS configurado y puedas abrir la app en tu celular.
