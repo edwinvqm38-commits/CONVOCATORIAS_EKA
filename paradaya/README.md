@@ -7,9 +7,10 @@ temporales. Es un proyecto nuevo e independiente — todavía no tiene una sola
 línea de código de app real, solo esta carpeta con el plan y una maqueta
 visual para revisar contigo antes de programar.
 
-> **Estado actual:** solo existen este documento y la maqueta visual en
-> `preview/index.html`. La Fase 1 (el primer código real de la app) empieza
-> después de resolver las preguntas de la sección 9.
+> **Estado actual:** Fase 1 (app Expo navegable, con datos de ejemplo) y
+> Fase 2 (esquema de base de datos + login real) ya tienen código escrito
+> — ver sección 10 para lo que falta de tu parte para dejar el login
+> funcionando de verdad.
 
 ## 1. Por qué esto vive dentro de `CONVOCATORIAS_EKA`
 
@@ -183,3 +184,74 @@ la carpeta `services/` lo deja preparado para no bloquear el futuro:
    quieres precargadas desde el día uno? (ej. IPERC, trabajos en altura,
    espacios confinados, manejo defensivo, primeros auxilios, ¿cuáles más
    son comunes en tus paradas?)
+
+## 10. Base de datos y login (Fase 2 — en progreso)
+
+### Dónde vive la base de datos
+
+Todo en **Supabase**, con tablas nuevas con prefijo **`paradaya_`**
+(`paradaya_empresas`, `paradaya_tecnicos`, `paradaya_paradas_planta`,
+`paradaya_postulaciones`, etc. — 9 tablas en total). El SQL completo, con
+seguridad a nivel de fila (RLS) y los buckets de archivos, ya está escrito
+en [`supabase/migrations/2026_08_07_create_paradaya_schema.sql`](supabase/migrations/2026_08_07_create_paradaya_schema.sql).
+
+Ese prefijo hace que estas tablas puedan vivir **en el mismo proyecto de
+Supabase que ya usa EKA Convocatorias** (tablas `convocatoria_*`) sin
+chocar entre sí — es la opción más simple si no quieres administrar dos
+proyectos separados. La alternativa es un proyecto de Supabase
+completamente nuevo, dedicado solo a ParadaYa (más aislado, útil si más
+adelante separas esto en su propio repositorio). El SQL sirve igual en
+cualquiera de los dos casos.
+
+**Lo que necesito de ti para dejarlo funcionando de verdad:**
+
+1. Confirmarme cuál de las dos opciones prefieres (mismo proyecto vs. uno
+   nuevo). Si no tienes cuenta de Supabase todavía, crearla es gratis en
+   [supabase.com](https://supabase.com).
+2. Entrar al panel de ese proyecto → **SQL Editor** → pegar y correr el
+   contenido del archivo de migración de arriba (crea las tablas, activa
+   la seguridad, y dos buckets de Storage: `paradaya-documentos` para CVs
+   y documentos, y `paradaya-logos` para logos de empresa).
+3. Pasarme el **Project URL** y la **anon public key** del proyecto
+   (Settings → API). Esas dos son seguras de compartir — la seguridad real
+   la hacen las políticas de RLS del paso anterior, no el secreto de esa
+   key. **Nunca compartas la `service_role` key** — esa sí es secreta.
+
+Con eso yo agrego un archivo `.env` (ya está en `.gitignore`, no se sube al
+repo) con esas dos variables y la app pasa de "modo demo" a datos reales.
+
+### Login: correo/contraseña, Google, o registro manual
+
+La pantalla de ingreso (`app/index.tsx`) ya tiene los tres casos
+construidos:
+
+- **Correo y contraseña** — funciona apenas conectemos Supabase (paso
+  anterior), sin configuración adicional.
+- **Registro manual** — el formulario de "Crear cuenta" ya pide los datos
+  mínimos por rol (nombres completos para técnico; nombre y RUC para
+  empresa) y crea la fila correspondiente en `paradaya_tecnicos` o
+  `paradaya_empresas` al registrarse.
+- **Seguir con Google** — el botón y el código ya están listos, pero
+  Google requiere una configuración aparte (no la puedo hacer yo por ti,
+  necesita tu cuenta de Google):
+  1. En [Google Cloud Console](https://console.cloud.google.com/) → crear
+     un proyecto (o usar uno existente) → **APIs y servicios →
+     Credenciales** → crear un **ID de cliente de OAuth** de tipo
+     "Aplicación web".
+  2. En **URIs de redireccionamiento autorizados**, agregar la URL de
+     callback que te muestra Supabase (la ves en el siguiente paso).
+  3. En el panel de Supabase → **Authentication → Providers → Google**,
+     activarlo y pegar el **Client ID** y **Client Secret** que te dio
+     Google en el paso 1.
+  4. Avísame cuando esté listo y probamos el botón.
+
+Mientras no completemos esto, "Continuar con Google" muestra un error
+claro en vez de fallar en silencio.
+
+### Qué sigue conectado a datos de ejemplo todavía
+
+Con esta fase, **las cuentas y el login ya son reales** (una vez
+conectado Supabase). El feed de paradas, mis postulaciones, y el panel de
+la empresa **siguen mostrando los datos de ejemplo** — conectarlos a las
+tablas reales (`paradaya_paradas_planta`, `paradaya_postulaciones`, etc.)
+es el siguiente paso natural, ya con el esquema listo para eso.
