@@ -204,52 +204,56 @@ Ya tengo el **Project URL** y la **anon public key** que me pasaste (las
 guardé en un archivo `.env` local, que está en `.gitignore` — nunca se
 sube al repositorio).
 
-**Un solo paso pendiente de tu lado — correr la migración:**
+**✅ Migración ya corrida.** Se conectó una herramienta de Supabase a mi
+sesión de trabajo y pude aplicarla yo mismo directo contra tu proyecto —
+confirmé que las 9 tablas, sus políticas de seguridad y los dos buckets de
+Storage (`paradaya-documentos` privado, `paradaya-logos` público) ya
+existen, sin tocar ninguna tabla `convocatoria_*`. También agregué después
+la columna `correo_contacto` que faltaba (ver más abajo). Ya no tienes que
+hacer nada de este paso.
 
-1. Entra a [supabase.com/dashboard/project/evredshfmwimdgcypxlh/sql/new](https://supabase.com/dashboard/project/evredshfmwimdgcypxlh/sql/new)
-   (SQL Editor de tu proyecto, ya con el link directo).
-2. Pega ahí el contenido completo de
-   [`supabase/migrations/2026_08_07_create_paradaya_schema.sql`](supabase/migrations/2026_08_07_create_paradaya_schema.sql)
-   y dale **Run**. Esto crea las 9 tablas, activa la seguridad, precarga
-   el catálogo de especialidades, y crea dos buckets de Storage
-   (`paradaya-documentos` privado para CVs/DNI, `paradaya-logos` público
-   para logos de empresa). No toca ninguna tabla `convocatoria_*`
-   existente.
-3. Avísame cuando lo corras — no lo puedo ejecutar yo mismo porque el
-   entorno donde trabajo tiene bloqueado el acceso de red a Supabase por
-   política de la organización (ver nota al final de esta sección).
+**Nota de seguridad, sin relación con ParadaYa:** al revisar el proyecto,
+Supabase marcó que dos tablas ya existentes — `convocatoria_personal` y
+`convocatoria_habilitaciones` — no tienen seguridad a nivel de fila (RLS)
+activada, es decir que quedan totalmente expuestas si algo llega a usarlas
+con la anon key. No las toqué porque no es parte de este trabajo y
+activarles RLS sin las políticas correctas podría cortarle el acceso al
+bot de Telegram. Avísame si quieres que lo revisemos aparte.
 
-### Login: teléfono (SMS), correo/contraseña, o registro manual
+### Login: Google o correo/contraseña
 
-La pantalla de ingreso (`app/index.tsx`) tiene dos métodos, con selector
-arriba:
+La pantalla de ingreso (`app/index.tsx`) tiene:
 
-- **Teléfono (por defecto)** — el técnico o la empresa escribe su número,
-  recibe un código por SMS, lo confirma. Si es la primera vez, justo
-  después le pide nombre (y para el técnico, opcionalmente su correo de
-  contacto) antes de entrar. **Requiere un paso tuyo:** Supabase necesita
-  un proveedor de SMS configurado (no viene activado por defecto):
-  1. Crea una cuenta en [Twilio](https://www.twilio.com/try-twilio) (tiene
-     prueba gratuita) y anota el **Account SID**, **Auth Token**, y compra
-     o activa un número de envío de SMS.
-  2. En el panel de Supabase → **Authentication → Providers → Phone**,
-     actívalo, elige Twilio, y pega esos datos.
-  3. Avísame cuando esté listo y probamos el flujo completo.
-  
+- **"Continuar con Google"** — un tap, sin costo por usuario. **Requiere un
+  paso tuyo** (no lo puedo hacer yo, necesita tu cuenta de Google):
+  1. En [Google Cloud Console](https://console.cloud.google.com/) → crear
+     un proyecto (o usar uno existente) → **APIs y servicios →
+     Credenciales** → crear un **ID de cliente de OAuth** de tipo
+     "Aplicación web".
+  2. En **URIs de redireccionamiento autorizados**, agregar la URL de
+     callback que te muestra Supabase (aparece en el siguiente paso).
+  3. En el panel de Supabase → **Authentication → Providers → Google**,
+     activarlo y pegar el **Client ID** y **Client Secret** que te dio
+     Google.
+  4. Avísame cuando esté listo y probamos el botón.
+
   Mientras tanto, el botón muestra un error claro en vez de fallar en
-  silencio.
-- **Correo y contraseña** — funciona apenas esté corrida la migración
-  (paso anterior), sin configuración adicional. Incluye "Iniciar sesión" y
-  "Crear cuenta" con los datos mínimos por rol.
+  silencio. Si es la primera vez que alguien entra con esa cuenta de
+  Google, la app le pide rol y datos mínimos antes de dejarlo pasar
+  (prellenando nombre y correo con lo que ya dio Google).
+- **Correo y contraseña** — ya funciona, sin configuración adicional.
+  Incluye "Iniciar sesión" y "Crear cuenta" con los datos mínimos por rol.
 
-*(Se sacó la opción de Google que habíamos planteado antes — la
-reemplazamos por teléfono, según pediste.)*
+*(Se evaluó teléfono con código SMS, pero Twilio u otro proveedor de SMS
+cobra por cada código enviado — se decidió no usarlo por ahora y quedarse
+con las dos opciones gratuitas.)*
 
 ### El correo de contacto del técnico
 
 Para que las empresas puedan responderle a un técnico por correo (aunque
-haya entrado con su número de teléfono), la tabla `paradaya_tecnicos` tiene
-una columna `correo_contacto` separada de su forma de ingresar a la app:
+haya entrado con Google y ese correo de Google no sea el que revisa
+seguido), la tabla `paradaya_tecnicos` tiene una columna `correo_contacto`
+separada de su forma de ingresar a la app:
 
 - Se puede completar de una vez al registrarse (campo opcional en el paso
   de "primera vez por aquí").
@@ -268,16 +272,20 @@ siguiente paso natural, ya con el esquema listo para eso.
 
 ### Nota sobre las pruebas que sí pude hacer y las que no
 
-El entorno donde yo trabajo (una sandbox en la nube) tiene bloqueado por
-política de la organización el acceso de red a `supabase.co` — ni
-siquiera puedo hacer una consulta de lectura desde aquí. Eso no afecta a
-la app en tu celular (ahí sí hay red normal), pero sí significa que:
+El entorno donde corre la *app* (cuando pruebo con `expo start --web` aquí
+mismo) tiene bloqueado por política de la organización el acceso de red a
+`supabase.co` — eso no cambia, y por eso no puedo probar un login real de
+principio a fin desde acá. Lo que sí cambió: la herramienta de Supabase
+que se conectó usa otro camino (no pasa por esa red bloqueada), así que
+con ella **sí puedo gestionar la base de datos directamente** — crear
+tablas, revisar columnas, chequear seguridad — como hice recién con la
+migración y la columna `correo_contacto`.
 
-- **Sí probé:** que la pantalla no se rompe, que los dos métodos de login
-  se ven y navegan bien, y que un error de red se muestra de forma clara
-  (probé exactamente eso — falló por el bloqueo, como se esperaba, y la
-  app lo mostró en pantalla en vez de crashear).
-- **No pude probar:** el flujo real de principio a fin (mandar el código
-  SMS, verificarlo, guardar en las tablas) porque necesita llegar a
-  Supabase de verdad. Eso lo probamos juntos cuando tengas el proveedor de
-  SMS configurado y puedas abrir la app en tu celular.
+- **Sí pude hacer:** correr y confirmar la migración completa contra tu
+  base real, agregar la columna que faltaba, y confirmar que las políticas
+  de seguridad quedaron bien puestas.
+- **Sigue sin poder probarse desde aquí:** el botón "Continuar con
+  Google" de principio a fin (necesita que actives el proveedor en
+  Supabase, y que la app corra en un dispositivo con salida a internet
+  normal — tu celular). Eso lo probamos juntos cuando lo tengas
+  configurado.
