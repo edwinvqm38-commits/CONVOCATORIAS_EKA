@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Maqueta visual de las pantallas moviles de ParadaYa (marketplace de paradas de planta): flujo del tecnico y flujo de la empresa.">
+<title>ParadaYa — Vista previa visual</title>
+<style>
+  :root{
+    --bg:#EEF2F0; --surface:#FFFFFF; --surface-2:#E3E9E6; --border:#C7D0CC;
+    --text:#131A1D; --text-muted:#57666C; --accent:#D9541F; --brand:#16324A;
+    --focus:#2E7B8C;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0D1417; --surface:#161F23; --surface-2:#1E2A2F; --border:#2C3A40;
+      --text:#E8EEEC; --text-muted:#93A6AB; --accent:#EA6B32; --brand:#6FA6C4;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0D1417; --surface:#161F23; --surface-2:#1E2A2F; --border:#2C3A40;
+    --text:#E8EEEC; --text-muted:#93A6AB; --accent:#EA6B32; --brand:#6FA6C4;
+  }
+  /* fixed palette for the simulated app screens (product design, not page chrome) */
+  :root{
+    --app-bg:#F5F6F5; --app-surface:#FFFFFF; --app-border:#DCE2DF;
+    --app-text:#16212A; --app-text-muted:#61707A; --app-brand:#16324A;
+    --app-accent:#D9541F; --app-success:#237A4B; --app-info:#2E7B8C;
+    --app-neutral:#5C6B74; --app-danger:#A6303D; --bezel:#14181B;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;}
+  .page{max-width:1180px;margin:0 auto;padding:44px 24px 64px;}
+  .intro{max-width:640px;margin-bottom:40px;}
+  .eyebrow{font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--accent);
+    text-transform:uppercase;margin:0 0 10px;}
+  h1{font-size:clamp(28px,4vw,40px);line-height:1.05;margin:0 0 12px;letter-spacing:-.01em;
+    text-wrap:balance;color:var(--text);}
+  h1 b{color:var(--accent);font-weight:800;}
+  .lead{font-size:15px;line-height:1.55;color:var(--text-muted);margin:0;max-width:56ch;}
+  .flow{margin-top:52px;}
+  .flow-head{display:flex;align-items:baseline;gap:12px;margin-bottom:18px;
+    border-bottom:1px solid var(--border);padding-bottom:12px;}
+  .flow-num{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--surface);background:var(--brand);padding:4px 9px;border-radius:20px;
+    font-variant-numeric:tabular-nums;flex:none;}
+  .flow-head h2{font-size:19px;margin:0;color:var(--text);}
+  .flow-head span.count{margin-left:auto;font-size:12px;color:var(--text-muted);
+    font-variant-numeric:tabular-nums;}
+  .phone-row{display:flex;gap:22px;overflow-x:auto;padding:6px 4px 18px;
+    scrollbar-width:thin;}
+  .phone-card{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:11px;width:236px;}
+  .phone-card figcaption{font-size:12.5px;color:var(--text-muted);text-align:center;line-height:1.4;margin:0;}
+  .phone-card figcaption b{color:var(--text);font-weight:600;}
+  .phone{width:236px;height:500px;background:var(--bezel);border-radius:32px;padding:9px;
+    box-shadow:0 18px 34px -14px rgba(0,0,0,.45),0 2px 0 rgba(255,255,255,.04) inset;position:relative;flex:none;}
+  .phone::before{content:"";position:absolute;top:9px;left:50%;transform:translateX(-50%);
+    width:70px;height:16px;background:var(--bezel);border-radius:10px;z-index:5;}
+  .screen{width:100%;height:100%;background:var(--app-surface);border-radius:24px;overflow:hidden;
+    position:relative;display:flex;flex-direction:column;font-size:11px;color:var(--app-text);}
+  .status-bar{display:flex;justify-content:space-between;align-items:center;
+    padding:9px 16px 4px;font-size:10.5px;font-weight:600;font-variant-numeric:tabular-nums;
+    color:var(--app-text);flex:none;}
+  .status-bar .icons{display:flex;gap:5px;align-items:center;color:var(--app-text);}
+  .status-bar svg{width:14px;height:10px;}
+  .brand-header{padding:10px 18px 4px;flex:none;}
+  .wordmark{font-size:19px;font-weight:800;color:var(--app-brand);letter-spacing:-.01em;}
+  .wordmark span{color:var(--app-accent);}
+  .tagline{font-size:10.5px;color:var(--app-text-muted);margin-top:2px;}
+  .role-switch{display:flex;margin:14px 18px 6px;background:var(--app-bg);border-radius:10px;
+    padding:3px;border:1px solid var(--app-border);flex:none;}
+  .role-opt{flex:1;text-align:center;font-size:10px;font-weight:600;padding:7px 4px;border-radius:8px;
+    color:var(--app-text-muted);}
+  .role-opt.active{background:var(--app-surface);color:var(--app-brand);
+    box-shadow:0 1px 3px rgba(0,0,0,.12);}
+  .login-form{padding:14px 18px;display:flex;flex-direction:column;gap:11px;overflow:hidden;}
+  .field{display:flex;flex-direction:column;gap:4px;}
+  .field span{font-size:9.5px;font-weight:600;color:var(--app-text-muted);
+    text-transform:uppercase;letter-spacing:.05em;}
+  .input{border:1px solid var(--app-border);background:var(--app-bg);border-radius:8px;
+    padding:9px 10px;font-size:11px;color:var(--app-text);}
+  .input.tall{min-height:44px;line-height:1.4;}
+  .btn-primary{background:var(--app-accent);color:#fff;border:none;border-radius:9px;
+    padding:11px;font-size:12px;font-weight:700;text-align:center;margin-top:4px;}
+  .btn-primary.full{width:100%;}
+  .alt-link{text-align:center;font-size:10.5px;color:var(--app-text-muted);margin-top:2px;}
+  .alt-link b{color:var(--app-accent);font-weight:700;}
+  .logo-upload{display:flex;flex-direction:column;align-items:center;gap:6px;margin-bottom:4px;}
+  .logo-circle{width:46px;height:46px;border-radius:50%;border:1.5px dashed var(--app-border);
+    display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--app-text-muted);}
+  .logo-upload span{font-size:10px;color:var(--app-text-muted);}
+  .app-header{display:flex;align-items:center;justify-content:space-between;
+    padding:12px 18px 8px;flex:none;}
+  .app-header.simple{gap:10px;}
+  .greet{font-size:14px;font-weight:700;color:var(--app-text);}
+  .sub{font-size:10px;color:var(--app-text-muted);margin-top:1px;}
+  .h-title{font-size:14.5px;font-weight:700;color:var(--app-text);}
+  .back{font-size:17px;color:var(--app-text-muted);line-height:1;}
+  .avatar-circle{width:30px;height:30px;border-radius:50%;background:var(--app-brand);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex:none;}
+  .avatar-circle.sm{width:26px;height:26px;font-size:10px;}
+  .avatar-circle.lg{width:52px;height:52px;font-size:16px;margin-bottom:8px;}
+  .btn-mini{font-size:10.5px;font-weight:700;color:var(--app-accent);border:1px solid var(--app-accent);
+    padding:6px 10px;border-radius:20px;}
+  .chip-row{display:flex;gap:6px;padding:2px 18px 10px;overflow-x:auto;flex:none;}
+  .chip{font-size:9.5px;font-weight:600;color:var(--app-text-muted);background:var(--app-bg);
+    border:1px solid var(--app-border);padding:6px 10px;border-radius:20px;white-space:nowrap;flex:none;}
+  .chip-active{background:var(--app-brand);color:#fff;border-color:var(--app-brand);}
+  .card-list,.app-list{padding:0 18px 10px;display:flex;flex-direction:column;gap:9px;
+    overflow-y:auto;flex:1;}
+  .job-card{border:1px solid var(--app-border);border-radius:12px;padding:11px 12px;background:var(--app-surface);}
+  .job-title{font-size:12px;font-weight:700;color:var(--app-text);line-height:1.3;}
+  .job-title.lg{font-size:15px;}
+  .job-title.sm{font-size:11.5px;}
+  .job-meta{font-size:10px;color:var(--app-text-muted);margin-top:3px;}
+  .job-meta.center{text-align:center;padding:0 18px 8px;}
+  .job-dates{font-size:10px;color:var(--app-text-muted);margin-top:2px;font-variant-numeric:tabular-nums;}
+  .job-tags{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap;}
+  .tag{font-size:9px;font-weight:600;padding:3px 8px;border-radius:6px;background:var(--app-bg);
+    color:var(--app-text-muted);border:1px solid var(--app-border);}
+  .tag-muted{color:var(--app-text-muted);}
+  .tag-accent{background:rgba(217,84,31,.1);color:var(--app-accent);border-color:transparent;}
+  .tag-wrap{display:flex;gap:6px;flex-wrap:wrap;}
+  .tabbar{display:flex;border-top:1px solid var(--app-border);padding:8px 10px 12px;flex:none;
+    background:var(--app-surface);}
+  .tab-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+    color:var(--app-text-muted);font-size:8.5px;font-weight:600;}
+  .tab-item.active{color:var(--app-accent);}
+  .tab-item svg{width:18px;height:18px;}
+  .pill{font-size:9px;font-weight:700;padding:4px 9px;border-radius:20px;white-space:nowrap;flex:none;}
+  .pill-neutral{background:rgba(92,107,116,.14);color:var(--app-neutral);}
+  .pill-info{background:rgba(46,123,140,.14);color:var(--app-info);}
+  .pill-success{background:rgba(35,122,75,.14);color:var(--app-success);}
+  .pill-danger{background:rgba(166,48,61,.12);color:var(--app-danger);}
+  .app-item,.cand-item{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    border:1px solid var(--app-border);border-radius:12px;padding:10px 11px;background:var(--app-surface);}
+  .cand-item{gap:9px;}
+  .cand-info{flex:1;}
+  .detail-hero{padding:10px 18px 4px;flex:none;}
+  .detail-hero .back{margin-bottom:8px;}
+  .detail-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:12px 18px;flex:none;}
+  .detail-grid.two{grid-template-columns:repeat(2,1fr);padding:6px 18px 4px;}
+  .stat{background:var(--app-bg);border-radius:9px;padding:8px 6px;text-align:center;}
+  .stat-label{display:block;font-size:8px;color:var(--app-text-muted);text-transform:uppercase;
+    letter-spacing:.04em;margin-bottom:2px;}
+  .stat-value{display:block;font-size:10.5px;font-weight:700;color:var(--app-text);
+    font-variant-numeric:tabular-nums;}
+  .section-block{padding:6px 18px 4px;flex:none;}
+  .block-label{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+    color:var(--app-text-muted);margin-bottom:5px;}
+  .section-block p{font-size:10.5px;line-height:1.5;color:var(--app-text);margin:0;}
+  .exp-item{font-size:10.5px;line-height:1.5;color:var(--app-text);margin-bottom:7px;}
+  .exp-item .job-meta{margin-top:0;}
+  .profile-hero{display:flex;flex-direction:column;align-items:center;padding:10px 18px 6px;flex:none;}
+  .profile-hero .job-title{margin-bottom:6px;}
+  .cv-row{margin:8px 18px 0;display:flex;align-items:center;gap:7px;font-size:10.5px;
+    color:var(--app-brand);font-weight:600;border:1px solid var(--app-border);border-radius:9px;
+    padding:9px 10px;}
+  .cv-row svg{width:15px;height:15px;flex:none;}
+  .btn-row{display:flex;gap:8px;padding:12px 18px 0;margin-top:auto;}
+  .btn-row .btn-primary{flex:1;margin-top:0;background:var(--app-success);}
+  .btn-outline{flex:1;border:1.5px solid var(--app-danger);color:var(--app-danger);
+    background:transparent;border-radius:9px;font-size:12px;font-weight:700;padding:10px;text-align:center;}
+  footer.note{margin-top:56px;padding-top:20px;border-top:1px solid var(--border);
+    font-size:12.5px;color:var(--text-muted);line-height:1.6;max-width:64ch;}
+  footer.note b{color:var(--text);}
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="intro">
+    <p class="eyebrow">Vista previa visual · maqueta no funcional</p>
+    <h1>Así se vería <b>ParadaYa</b> en un celular</h1>
+    <p class="lead">Esto es una maqueta de diseño (HTML), todavía no es la app real ni está programada en
+      React Native. Los nombres de empresas, unidades mineras y personas son de ejemplo, para que puedas
+      opinar sobre la estructura y el flujo antes de que empecemos a construir de verdad.</p>
+  </header>
+
+  <section class="flow">
+    <div class="flow-head">
+      <span class="flow-num">Flujo 1</span>
+      <h2>Técnico / Ingeniero</h2>
+      <span class="count">4 pantallas</span>
+    </div>
+    <div class="phone-row">
+
+      <figure class="phone-card">
+        <div class="phone"><div class="screen">
+          <div class="status-bar"><span>9:41</span><span class="icons">
+            <svg viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1 8V6M5 8V4M9 8V2M13 8V0"/></svg>
+            <svg viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1.5" width="17" height="9" rx="2"/><rect x="20" y="4.5" width="1.5" height="3" fill="currentColor" stroke="none"/><rect x="2.5" y="3" width="12" height="6" rx="1" fill="currentColor" stroke="none"/></svg>
+          </span></div>
+          <div class="brand-header">
+            <div class="wordmark">Parada<span>Ya</span></div>
+            <div class="tagline">Conecta con tu próxima parada de planta</div>
+          </div>
+          <div class="role-switch">
+            <div class="role-opt active">Técnico / Ingeniero</div>
+            <div class="role-opt">Empresa</div>
+          </div>
+          <div class="login-form">
+            <label class="field"><span>Correo electrónico</span><div class="input">jcondori@correo.com</div></label>
+            <label class="field"><span>Contraseña</span><div class="input">••••••••</div></label>
+            <div class="btn-primary full">Iniciar sesión</div>
+            <div class="alt-link">¿No tienes cuenta? <b>Crear cuenta</b></div>
+          </div>
+        </div></div>
+        <figcaption><b>1. Ingreso</b> — elige tu rol (técnico o empresa) y entra con tu correo</figcaption>
+      </figure>
+
+      <figure class="phone-card">
+        <div class="phone"><div class="screen">
+          <div class="status-bar"><span>9:41</span><span class="icons">
+            <svg viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1 8V6M5 8V4M9 8V2M13 8V0"/></svg>
+            <svg viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1.5" width="17" height="9" rx="2"/><rect x="20" y="4.5" width="1.5" height="3" fill="currentColor" stroke="none"/><rect x="2.5" y="3" width="12" height="6" rx="1" fill="currentColor" stroke="none"/></svg>
+          </span></div>
+          <div class="app-header">
+            <div><div class="greet">Hola, Jorge</div><div class="sub">Técnico Mecánico</div></div>
+            <div class="avatar-circle">JC</div>
+          </div>
+          <div class="chip-row">
+            <span class="chip chip-active">★ Recomendadas</span>
+            <span class="chip">Especialidad</span>
+            <span class="chip">Fecha</span>
+            <span class="chip">Ubicación</span>
+          </div>
+          <div class="card-list">
+            <div class="job-card">
+              <div class="job-title">Parada General — Planta Concentradora</div>
+              <div class="job-meta">Unidad Minera Los Andes · Arequipa</div>
+              <div class="job-dates">12–26 ago 2026</div>
+              <div class="job-tags"><span class="tag">Mecánico</span><span class="tag tag-muted">Técnico</span><span class="tag tag-accent">15 vacantes</span></div>
+            </div>
+            <div class="job-card">
+              <div class="job-title">Mantenimiento Programado Cuatrienal</div>
+              <div class="job-meta">Unidad Minera Alto Chicama · La Libertad</div>
+              <div class="job-dates">20 ago – 10 sep 2026</div>
+              <div class="job-tags"><span class="tag">Instrumentación</span><span class="tag tag-muted">Supervisor</span></div>
+            </div>
+            <div class="job-card">
+              <div class="job-title">Parada de Chancado Primario</div>
+              <div class="job-meta">Planta Ilo Sur · Moquegua</div>
+              <div class="job-dates">01–15 sep 2026</div>
+              <div class="job-tags"><span class="tag">Soldadura</span><span class="tag tag-muted">Técnico</span></div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Inicio</div>
+            <div class="tab-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 9h6M9 13h6M9 17h4"/></svg>Postulaciones</div>
+            <div class="tab-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Perfil</div>
+          </div>
+        </div></div>
+        <figcaption><b>2. Feed de paradas</b> — tarjetas tipo delivery, con filtro "Recomendadas para mí"</figcaption>
+      </figure>
+
+      <figure class="phone-card">
+        <div class="phone"><div class="screen">
+          <div class="status-bar"><span>9:41</span><span class="icons">
+            <svg viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1 8V6M5 8V4M9 8V2M13 8V0"/></svg>
+            <svg viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1.5" width="17" height="9" rx="2"/><rect x="20" y="4.5" width="1.5" height="3" fill="currentColor" stroke="none"/><rect x="2.5" y="3" width="12" height="6" rx="1" fill="currentColor" stroke="none"/></svg>
+          </span></div>
+          <div class="detail-hero">
+            <div class="back">‹</div>
+            <div class="job-title lg">Parada General — Planta Concentradora</div>
+            <div class="job-meta">Unidad Minera Los Andes · Arequipa, Perú</div>
+          </div>
+          <div class="detail-grid">
+            <div class="stat"><span class="stat-label">Fechas</span><span class="stat-value">12–26 ago</span></div>
+            <div class="stat"><span class="stat-label">Especialidad</span><span class="stat-value">Mecánico</span></div>
+            <div class="stat"><span class="stat-label">Cargo</span><span class="stat-value">Técnico</span></div>
+            <div class="stat"><span class="stat-label">Vacantes</span><span class="stat-value">15</span></div>
+          </div>
+          <div class="section-block">
+            <div class="block-label">Requisitos mínimos</div>
+            <p>3 años de experiencia en mantenimiento mecánico industrial. Certificación IPERC vigente. Licencia de conducir A-I.</p>
+          </div>
+          <div class="section-block">
+            <div class="block-label">Descripción</div>
+            <p>Overhaul de chancadora primaria y fajas transportadoras. Alojamiento y alimentación incluidos.</p>
+          </div>
+          <div style="margin-top:auto;padding:14px 18px 16px;">
+            <div class="btn-primary full">Postular a esta parada</div>
+          </div>
+        </div></div>
+        <figcaption><b>3. Detalle</b> — requisitos, fechas y botón para postular con un tap</figcaption>
+      </figure>
+
+      <figure class="phone-card">
+        <div class="phone"><div class="screen">
+          <div class="status-bar"><span>9:41</span><span class="icons">
+            <svg viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1 8V6M5 8V4M9 8V2M13 8V0"/></svg>
+            <svg viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1.5" width="17" height="9" rx="2"/><rect x="20" y="4.5" width="1.5" height="3" fill="currentColor" stroke="none"/><rect x="2.5" y="3" width="12" height="6" rx="1" fill="currentColor" stroke="none"/></svg>
+          </span></div>
+          <div class="app-header simple"><div class="h-title">Mis postulaciones</div></div>
+          <div class="app-list">
+            <div class="app-item"><div><div class="job-title sm">Parada General</div><div class="job-meta">Unidad Minera Los Andes</div></div><span class="pill pill-info">Vista</span></div>
+            <div class="app-item"><div><div class="job-title sm">Mantenimiento Cuatrienal</div><div class="job-meta">Alto Chicama</div></div><span class="pill pill-success">Aceptada</span></div>
+            <div class="app-item"><div><div class="job-title sm">Parada de Chancado</div><div class="job-meta">Planta Ilo Sur</div></div><span class="pill pill-neutral">Enviada</span></div>
+            <div class="app-item"><div><div class="job-title sm">Parada Eléctrica</div><div class="job-meta">Refinería Norte</div></div><span class="pill pill-danger">Rechazada</span></div>
+          </div>
+          <div class="tabbar">
+            <div class="tab-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Inicio</div>
+            <div class="tab-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 9h6M9 13h6M9 17h4"/></svg>Postulaciones</div>
+            <div class="tab-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Perfil</div>
+          </div>
+        </div></div>
+        <figcaption><b>4. Mis postulaciones</b> — estado de cada postulación: enviada, vista, aceptada o rechazada</figcaption>
+      </figure>
+
+    </div>
+  </section>
+
+  <section class="flow">
+    <div class="flow-head">
+      <span class="flow-num">Flujo 2</span>
+      <h2>Empresa</h2>
+      <span class="count">4 pantallas</span>
+    </div>
+    <div class="phone-row">
+
+      <figure class="phone-card">
+        <div class="phone"><div class="screen">
+          <div class="status-bar"><span>9:41</span><span class="icons">
+            <svg viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1 8V6M5 8V4M9 8V2M13 8V0"/></svg>
+            <svg viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1.5" width="17" height="9" rx="2"/><rect x="20" y="4.5" width="1.5" height="3" fill="currentColor" stroke="none"/><rect x="2.5" y="3" width="12" height="6" rx="1" fill="currentColor" stroke="none"/></svg>
+          </span></div>
+          <div class="app-header simple"><div class="h-title">Perfil de empresa</div></div>
+          <div class="login-form">
+            <div class="logo-upload"><div class="logo-circle">+</div><span>Subir logo</span></div>
+            <label class="field"><span>Nombre de la empresa</span><div class="input">Servicios Industriales del Sur SAC</div></label>
+            <label class="field"><span>RUC</span><div class="input">20601234567</div></label>
+            <label class="field"><span>Sector</span><div class="input">Minería — Mantenimiento</div></label>
+            <label class="field"><span>Descripción breve</span><div class="input tall">Empresa contratista especializada en mantenimiento mecánico y eléctrico para paradas de planta.</div></label>
+            <div class="btn-primary full">Guardar perfil</div>
+          </div>
+        </div></div>
+        <figcaption><b>1. Perfil de empresa</b> — nombre, RUC, sector, logo y descripción</figcaption>
+      </figure>
+
+      <figure class="phone-card">
+        <div class="phone"><div class="screen">
+          <div class="status-bar"><span>9:41</span><span class="icons">
+            <svg viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1 8V6M5 8V4M9 8V2M13 8V0"/></svg>
+            <svg viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1.5" width="17" height="9" rx="2"/><rect x="20" y="4.5" width="1.5" height="3" fill="currentColor" stroke="none"/><rect x="2.5" y="3" width="12" height="6" rx="1" fill="currentColor" stroke="none"/></svg>
+          </span></div>
+          <div class="app-header"><div class="h-title">Mis paradas de planta</div><span class="btn-mini">+ Nueva</span></div>
+          <div class="card-list">
+            <div class="job-card">
+              <div class="job-title">Parada General — Planta Concentradora</div>
+              <div class="job-meta">12–26 ago 2026</div>
+              <div class="job-tags"><span class="pill pill-success">Vigente</span><span class="tag tag-muted">12 postulantes</span></div>
+            </div>
+            <div class="job-card">
+              <div class="job-title">Mantenimiento Cuatrienal</div>
+              <div class="job-meta">20 ago – 10 sep 2026</div>
+              <div class="job-tags"><span class="pill pill-success">Vigente</span><span class="tag tag-muted">8 postulantes</span></div>
+            </div>
+            <div class="job-card">
+              <div class="job-title">Parada Eléctrica — Refinería Norte</div>
+              <div class="job-meta">02–18 jul 2026</div>
+              <div class="job-tags"><span class="pill pill-neutral">Cerrada</span><span class="tag tag-muted">24 postulantes</span></div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 9h6M9 13h6M9 17h4"/></svg>Paradas</div>
+            <div class="tab-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 21c0-3.5 3-5.5 6-5.5s6 2 6 5.5"/><path d="M15 21c.3-2.5 2-4 5-4"/></svg>Postulantes</div>
+            <div class="tab-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="1"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2"/></svg>Perfil</div>
+          </div>
+        </div></div>
+        <figcaption><b>2. Mis paradas</b> — publicadas por la empresa, con estado vigente/cerrada</figcaption>
+      </figure>
+
+      <figure class="phone-card">
+        <div class="phone"><div class="screen">
+          <div class="status-bar"><span>9:41</span><span class="icons">
+            <svg viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1 8V6M5 8V4M9 8V2M13 8V0"/></svg>
+            <svg viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1.5" width="17" height="9" rx="2"/><rect x="20" y="4.5" width="1.5" height="3" fill="currentColor" stroke="none"/><rect x="2.5" y="3" width="12" height="6" rx="1" fill="currentColor" stroke="none"/></svg>
+          </span></div>
+          <div class="app-header simple"><div class="back">‹</div><div class="h-title">Postulantes</div></div>
+          <div class="job-meta center">Parada General — Planta Concentradora</div>
+          <div class="app-list">
+            <div class="cand-item"><div class="avatar-circle sm">RC</div><div class="cand-info"><div class="job-title sm">Renzo Cárdenas Salas</div><div class="job-meta">Mecánico · 6 años exp.</div></div><span class="pill pill-neutral">Nuevo</span></div>
+            <div class="cand-item"><div class="avatar-circle sm">MH</div><div class="cand-info"><div class="job-title sm">Milagros Huamán Ríos</div><div class="job-meta">Mecánico · 9 años exp.</div></div><span class="pill pill-info">Vista</span></div>
+            <div class="cand-item"><div class="avatar-circle sm">DF</div><div class="cand-info"><div class="job-title sm">Diego Farfán Ortiz</div><div class="job-meta">Mecánico · 4 años exp.</div></div><span class="pill pill-success">Aceptado</span></div>
+          </div>
+        </div></div>
+        <figcaption><b>3. Postulantes</b> — todos los que aplicaron a esa parada, con su estado</figcaption>
+      </figure>
+
+      <figure class="phone-card">
+        <div class="phone"><div class="screen">
+          <div class="status-bar"><span>9:41</span><span class="icons">
+            <svg viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1 8V6M5 8V4M9 8V2M13 8V0"/></svg>
+            <svg viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1.5" width="17" height="9" rx="2"/><rect x="20" y="4.5" width="1.5" height="3" fill="currentColor" stroke="none"/><rect x="2.5" y="3" width="12" height="6" rx="1" fill="currentColor" stroke="none"/></svg>
+          </span></div>
+          <div class="app-header simple"><div class="back">‹</div><div class="h-title">Perfil del postulante</div></div>
+          <div class="profile-hero">
+            <div class="avatar-circle lg">RC</div>
+            <div class="job-title">Renzo Cárdenas Salas</div>
+            <span class="tag tag-accent">Mecánico</span>
+          </div>
+          <div class="detail-grid two">
+            <div class="stat"><span class="stat-label">Experiencia</span><span class="stat-value">6 años</span></div>
+            <div class="stat"><span class="stat-label">Ubicación</span><span class="stat-value">Arequipa</span></div>
+          </div>
+          <div class="section-block">
+            <div class="block-label">Experiencia previa</div>
+            <div class="exp-item"><b>Técnico Mecánico</b> — Unidad Minera Toromina<br><span class="job-meta">2022–2024</span></div>
+            <div class="exp-item"><b>Ayudante Mecánico</b> — Planta Cementos del Centro<br><span class="job-meta">2019–2022</span></div>
+          </div>
+          <div class="cv-row">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/></svg>
+            CV_Renzo_Cardenas.pdf
+          </div>
+          <div class="btn-row">
+            <div class="btn-outline">Rechazar</div>
+            <div class="btn-primary">Aceptar</div>
+          </div>
+        </div></div>
+        <figcaption><b>4. Ver postulante</b> — perfil, experiencia, certificaciones, CV y botones aceptar/rechazar</figcaption>
+      </figure>
+
+    </div>
+  </section>
+
+  <footer class="note">
+    <b>Nota:</b> es una maqueta visual estática (HTML), no una app funcionando — sirve para acordar contigo
+    cómo se ve y qué información aparece en cada pantalla antes de programarla en React Native + Expo.
+    Nombres de empresas, unidades mineras y personas son ficticios, solo para ilustrar el diseño. Colores,
+    categorías y textos exactos se ajustan según tus respuestas.
+  </footer>
+</div>
+</body>
+</html>
