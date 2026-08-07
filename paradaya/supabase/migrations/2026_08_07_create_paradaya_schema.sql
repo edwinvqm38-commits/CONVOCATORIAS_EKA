@@ -45,7 +45,8 @@ create table if not exists paradaya_tecnicos (
     user_id uuid not null unique references auth.users(id) on delete cascade,
     nombres_completos text not null,
     dni text,
-    telefono text,
+    telefono text, -- puede ser el mismo con el que se registró, o uno de contacto/WhatsApp
+    correo_contacto text, -- opcional; para que la empresa pueda responderle por correo
     ubicacion text, -- región (ver constants/regiones.ts)
     anios_experiencia_total int,
     created_at timestamptz not null default now()
